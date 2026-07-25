@@ -61,3 +61,25 @@ def test_apply_ramp_retries_once_on_stale_serial():
     r, g, b = build_ramp(4, 5000)
     be.apply_ramp("DP-2", r, g, b)         # first attempt stale -> refresh -> retry
     assert t.set_calls[-1][2:] == (r, g, b)
+
+
+def test_monitors_changed_refreshes_serial_and_notifies():
+    t = FakeMutterTransport()
+    be = MutterBackend(t)
+    seen = []
+    be.subscribe_monitors_changed(lambda: seen.append("changed"))
+    t.emit_monitors_changed(new_serial=99)
+    assert seen == ["changed"]
+    # applies now use the refreshed serial (99) -> no stale error
+    size = be.list_displays()[0].ramp_size
+    r, g, b = build_ramp(size, 6500)
+    be.apply_ramp("DP-2", r, g, b)
+    assert t.set_calls[-1][0] == 99
+
+
+def test_monitors_changed_drops_disappeared_display():
+    t = FakeMutterTransport()
+    be = MutterBackend(t)
+    t.disable_output("HDMI-1")
+    t.emit_monitors_changed()
+    assert [d.connector for d in be.list_displays()] == ["DP-2"]
