@@ -2,7 +2,11 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from fluxmax.backend.transport import MutterError, MutterTransport
+from fluxmax.backend.transport import (
+    MutterError,
+    MutterTransport,
+    StaleSerialError,
+)
 
 
 @dataclass(frozen=True)
@@ -51,3 +55,33 @@ class MutterBackend:
         self._refresh()
         if self._user_mc_cb is not None:
             self._user_mc_cb()
+
+    def get_gamma(self, connector: str) -> tuple[list[int], list[int], list[int]]:
+        d = self._display(connector)
+        r, g, b = self._t.call("GetCrtcGamma", (self._serial, d.crtc_id))
+        return list(r), list(g), list(b)
+
+    def apply_ramp(
+        self,
+        connector: str,
+        red: list[int],
+        green: list[int],
+        blue: list[int],
+    ) -> None:
+        d = self._display(connector)
+        try:
+            self._t.call(
+                "SetCrtcGamma", (self._serial, d.crtc_id, red, green, blue)
+            )
+        except StaleSerialError:
+            self._refresh()
+            d = self._display(connector)
+            self._t.call(
+                "SetCrtcGamma", (self._serial, d.crtc_id, red, green, blue)
+            )
+
+    def reset(self, connector: str) -> None:
+        size = self._display(connector).ramp_size
+        denom = size - 1
+        identity = [round(i / denom * 65535) for i in range(size)]
+        self.apply_ramp(connector, identity, list(identity), list(identity))

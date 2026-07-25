@@ -2,6 +2,7 @@ import pytest
 
 from fluxmax.backend.mutter import Display, MutterBackend
 from fluxmax.backend.transport import FakeMutterTransport
+from fluxmax.color import build_ramp
 
 
 def test_list_displays_maps_connectors_to_crtc_ids():
@@ -24,3 +25,39 @@ def test_unknown_connector_get_gamma_raises():
     be = MutterBackend(FakeMutterTransport())
     with pytest.raises(MutterError):
         be.get_gamma("NOPE-9")
+
+
+def test_apply_ramp_sends_exact_payload_to_correct_crtc():
+    t = FakeMutterTransport(ramp_size=4096)
+    be = MutterBackend(t)
+    r, g, b = build_ramp(4096, 3400)
+    be.apply_ramp("HDMI-1", r, g, b)
+    serial, crtc, sr, sg, sb = t.set_calls[-1]
+    assert crtc == 1                      # HDMI-1 -> crtc id 1
+    assert (sr, sg, sb) == (r, g, b)
+
+
+def test_get_gamma_roundtrips_after_apply():
+    t = FakeMutterTransport(ramp_size=8)
+    be = MutterBackend(t)
+    r, g, b = build_ramp(8, 2700)
+    be.apply_ramp("DP-2", r, g, b)
+    assert be.get_gamma("DP-2") == (r, g, b)
+
+
+def test_reset_writes_identity_ramp():
+    t = FakeMutterTransport(ramp_size=4)
+    be = MutterBackend(t)
+    be.reset("DP-2")
+    _serial, crtc, sr, sg, sb = t.set_calls[-1]
+    assert crtc == 0
+    assert sr == sg == sb == [0, 21845, 43690, 65535]     # round(i/3*65535)
+
+
+def test_apply_ramp_retries_once_on_stale_serial():
+    t = FakeMutterTransport(ramp_size=4)
+    be = MutterBackend(t)
+    t.force_stale_once()
+    r, g, b = build_ramp(4, 5000)
+    be.apply_ramp("DP-2", r, g, b)         # first attempt stale -> refresh -> retry
+    assert t.set_calls[-1][2:] == (r, g, b)
