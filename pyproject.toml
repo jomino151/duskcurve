@@ -1,0 +1,16 @@
+[project]
+name = "fluxmax"
+version = "0.1.0"
+description = "GNOME/Wayland-native f.lux-equivalent blue-light filter"
+requires-python = ">=3.12"
+license = { text = "GPL-3.0-or-later" }
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["fluxmax*"]
