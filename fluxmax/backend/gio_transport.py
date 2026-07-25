@@ -30,13 +30,14 @@ class GioMutterTransport:
             )
         except GLib.Error as e:
             msg = e.message
-            if "stale" in msg.lower() or "serial" in msg.lower():
+            low = msg.lower()
+            if "stale" in low or "serial" in low:
                 raise StaleSerialError(msg) from e
             raise MutterError(msg) from e
         return result.unpack()
 
     def subscribe_monitors_changed(self, cb) -> None:
-        self._conn.signal_subscribe(
+        self._sub_id = self._conn.signal_subscribe(
             _NAME, _IFACE, "MonitorsChanged", _PATH, None,
             Gio.DBusSignalFlags.NONE, lambda *a: cb(), None,
         )

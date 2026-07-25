@@ -7,6 +7,7 @@ from fluxmax.backend.transport import (
     MutterTransport,
     StaleSerialError,
 )
+from fluxmax.color import build_ramp
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,7 @@ class MutterBackend:
         return d
 
     def subscribe_monitors_changed(self, cb: Callable[[], None]) -> None:
+        """Store exactly one callback; a second call replaces the first, it does not add one."""
         self._user_mc_cb = cb
 
     def _on_monitors_changed(self) -> None:
@@ -68,6 +70,8 @@ class MutterBackend:
         green: list[int],
         blue: list[int],
     ) -> None:
+        """Retries once on StaleSerialError after a refresh; a second consecutive
+        StaleSerialError propagates to the caller."""
         d = self._display(connector)
         try:
             self._t.call(
@@ -82,6 +86,5 @@ class MutterBackend:
 
     def reset(self, connector: str) -> None:
         size = self._display(connector).ramp_size
-        denom = size - 1
-        identity = [round(i / denom * 65535) for i in range(size)]
-        self.apply_ramp(connector, identity, list(identity), list(identity))
+        red, green, blue = build_ramp(size, 6500)   # 6500K whitepoint (1,1,1) => identity ramp
+        self.apply_ramp(connector, red, green, blue)

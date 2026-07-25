@@ -39,3 +39,7 @@ def main(argv: list[str] | None = None, backend: MutterBackend | None = None) ->
     be.apply_ramp(args.connector, red, green, blue)
     print(f"applied {args.temp}K to {args.connector}")
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
