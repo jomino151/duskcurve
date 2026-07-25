@@ -34,3 +34,14 @@ def test_warmer_reduces_blue_relative_to_red():
 def test_brightness_scales_top_end():
     r, _, _ = build_ramp(256, 6500, brightness=0.5)
     assert r[-1] == pytest.approx(round(65535 * 0.5), abs=1)
+
+
+def test_size_below_two_raises():
+    with pytest.raises(ValueError, match="ramp size must be >= 2"):
+        build_ramp(1, 6500)
+
+
+def test_brightness_above_one_clamps_to_max():
+    r, _, _ = build_ramp(256, 6500, brightness=2.0)
+    assert max(r) == 65535
+    assert all(0 <= v <= 65535 for v in r)

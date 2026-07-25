@@ -31,3 +31,8 @@ def test_smoothstep_equals_linear_at_half():
 def test_smoothstep_eases_near_ends():
     # smoothstep(0.1) < 0.1, so result is closer to k1 than linear would be
     assert lerp_kelvin(6500, 2700, 0.1, "smoothstep") > lerp_kelvin(6500, 2700, 0.1, "linear")
+
+
+def test_unknown_easing_raises():
+    with pytest.raises(ValueError, match="unknown easing"):
+        lerp_kelvin(6500, 2700, 0.5, "bogus")
