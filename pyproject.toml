@@ -8,6 +8,9 @@ license = { text = "GPL-3.0-or-later" }
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.5"]
 
+[project.scripts]
+fluxmax-apply = "fluxmax.backend.cli:main"
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
