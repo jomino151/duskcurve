@@ -12,7 +12,7 @@ LON = 13.40
 
 def test_returns_solar_events_tz_aware_on_requested_day():
     day = date(2026, 6, 21)
-    events = solar_events(day, LAT, LON, BERLIN)
+    events = solar_events(LAT, LON, day, BERLIN)
 
     assert isinstance(events, SolarEvents)
     for dt in (events.sunrise, events.solar_noon, events.sunset):
@@ -23,7 +23,7 @@ def test_returns_solar_events_tz_aware_on_requested_day():
 
 def test_summer_solstice_matches_published_reference():
     day = date(2026, 6, 21)
-    events = solar_events(day, LAT, LON, BERLIN)
+    events = solar_events(LAT, LON, day, BERLIN)
 
     expected_sunrise = events.sunrise.replace(hour=4, minute=52, second=0, microsecond=0)
     expected_sunset = events.sunset.replace(hour=21, minute=38, second=0, microsecond=0)
@@ -34,7 +34,7 @@ def test_summer_solstice_matches_published_reference():
 
 def test_sunrise_noon_sunset_ordering_and_midpoint():
     day = date(2026, 6, 21)
-    events = solar_events(day, LAT, LON, BERLIN)
+    events = solar_events(LAT, LON, day, BERLIN)
 
     assert events.sunrise < events.solar_noon < events.sunset
 
@@ -44,7 +44,7 @@ def test_sunrise_noon_sunset_ordering_and_midpoint():
 
 def test_winter_solstice_short_day():
     day = date(2026, 12, 21)
-    events = solar_events(day, LAT, LON, BERLIN)
+    events = solar_events(LAT, LON, day, BERLIN)
 
     assert events.sunrise.hour == 8
     # Brief states 15; verified against published data (timeanddate.com) and
@@ -57,8 +57,8 @@ def test_winter_solstice_short_day():
 
 
 def test_dst_offsets_reflected():
-    summer = solar_events(date(2026, 6, 21), LAT, LON, BERLIN)
-    winter = solar_events(date(2026, 12, 21), LAT, LON, BERLIN)
+    summer = solar_events(LAT, LON, date(2026, 6, 21), BERLIN)
+    winter = solar_events(LAT, LON, date(2026, 12, 21), BERLIN)
 
     assert summer.sunrise.utcoffset() == timedelta(hours=2)
     assert winter.sunrise.utcoffset() == timedelta(hours=1)

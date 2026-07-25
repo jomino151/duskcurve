@@ -11,11 +11,11 @@ from datetime import date, datetime, time, timedelta, tzinfo
 @dataclass(frozen=True)
 class SolarEvents:
     sunrise: datetime
-    solar_noon: datetime
     sunset: datetime
+    solar_noon: datetime
 
 
-def solar_events(day: date, lat: float, lon: float, tz: tzinfo) -> SolarEvents:
+def solar_events(lat: float, lon: float, day: date, tz: tzinfo) -> SolarEvents:
     """Compute sunrise, solar noon, and sunset for `day` at (lat, lon) in `tz`.
 
     `lat`/`lon` are in degrees (lon east-positive). Uses the NOAA solar-position
@@ -91,6 +91,6 @@ def solar_events(day: date, lat: float, lon: float, tz: tzinfo) -> SolarEvents:
 
     return SolarEvents(
         sunrise=_at(sunrise_min),
-        solar_noon=_at(noon_min),
         sunset=_at(sunset_min),
+        solar_noon=_at(noon_min),
     )
