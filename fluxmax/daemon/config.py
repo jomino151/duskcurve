@@ -8,6 +8,8 @@ installed) whose output is guaranteed to round-trip through `load_config`
 to an equal `Config`.
 """
 
+import decimal
+import math
 import re
 import tomllib
 from dataclasses import dataclass, field
@@ -131,7 +133,10 @@ def _validate_keypoint(raw: dict) -> KeypointConfig:
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"[[schedule.keypoints]] kelvin must be numeric: {exc}") from exc
 
-    offset_min = int(raw.get("offset_min", 0))
+    try:
+        offset_min = int(raw.get("offset_min", 0))
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"keypoint offset_min must be an integer: {exc}") from exc
     easing = raw.get("easing", "smoothstep")
 
     if not isinstance(anchor, str) or not (
@@ -142,7 +147,7 @@ def _validate_keypoint(raw: dict) -> KeypointConfig:
         )
     if easing not in _EASINGS:
         raise ConfigError(f"keypoint easing {easing!r} must be one of {sorted(_EASINGS)}")
-    if not (kelvin > 0 and kelvin == kelvin and kelvin not in (float("inf"), float("-inf"))):
+    if not (math.isfinite(kelvin) and kelvin > 0):
         raise ConfigError(f"keypoint kelvin must be finite and > 0, got {kelvin}")
 
     return KeypointConfig(anchor=anchor, kelvin=kelvin, offset_min=offset_min, easing=easing)
@@ -165,13 +170,20 @@ def _validate_schedule(raw: dict) -> tuple[str, str, str, tuple[KeypointConfig, 
 
     if mode == "custom" and not keypoints:
         raise ConfigError("schedule.mode 'custom' requires a non-empty schedule.keypoints list")
+    if mode != "custom" and keypoints:
+        raise ConfigError(
+            f"schedule.keypoints is only valid when mode == 'custom' (mode is {mode!r})"
+        )
 
     return wake, bedtime, mode, keypoints
 
 
 def _validate_range(raw: dict) -> tuple[float, float]:
-    min_kelvin = float(raw.get("min_kelvin", 1200.0))
-    max_kelvin = float(raw.get("max_kelvin", 6500.0))
+    try:
+        min_kelvin = float(raw.get("min_kelvin", 1200.0))
+        max_kelvin = float(raw.get("max_kelvin", 6500.0))
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"[range] min_kelvin/max_kelvin must be numeric: {exc}") from exc
     if not (0 < min_kelvin < 100000):
         raise ConfigError(f"range.min_kelvin must be in (0, 100000), got {min_kelvin}")
     if not (0 < max_kelvin < 100000):
@@ -184,14 +196,20 @@ def _validate_range(raw: dict) -> tuple[float, float]:
 
 
 def _validate_transition(raw: dict) -> float:
-    seconds = float(raw.get("seconds", 20.0))
+    try:
+        seconds = float(raw.get("seconds", 20.0))
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"transition.seconds must be numeric: {exc}") from exc
     if seconds < 0:
         raise ConfigError(f"transition.seconds must be >= 0, got {seconds}")
     return seconds
 
 
 def _validate_tick(raw: dict) -> float:
-    interval = float(raw.get("interval_seconds", 2.0))
+    try:
+        interval = float(raw.get("interval_seconds", 2.0))
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"tick.interval_seconds must be numeric: {exc}") from exc
     if interval <= 0:
         raise ConfigError(f"tick.interval_seconds must be > 0, got {interval}")
     return interval
@@ -207,7 +225,10 @@ def _validate_display(name: str, raw: dict) -> DisplayConfig:
             f"displays.{name}.override_kind {override_kind!r} must be one of "
             f"{sorted(_OVERRIDE_KINDS)}"
         )
-    override_value = float(raw.get("override_value", 0.0))
+    try:
+        override_value = float(raw.get("override_value", 0.0))
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"displays.{name}.override_value must be numeric: {exc}") from exc
     if override_kind in ("warm_cap", "fixed") and not (override_value > 0):
         raise ConfigError(
             f"displays.{name}.override_value must be > 0 for override_kind "
@@ -261,10 +282,17 @@ def load_config(text: str) -> Config:
 
 
 def _fmt_float(value: float) -> str:
-    """Format a float without exponent notation, trimming to an int when exact."""
-    if value == int(value):
-        return f"{value:.1f}"
-    return repr(float(value))
+    """Format a float in fixed-point (never exponent) notation, losslessly.
+
+    repr(value) is the shortest decimal string that round-trips to the same
+    float; parsing that through Decimal and reformatting with the 'f'
+    (fixed-point) spec forces plain digits even for magnitudes where repr()
+    would otherwise use exponent notation (e.g. 1e-08).
+    """
+    text = format(decimal.Decimal(repr(float(value))), "f")
+    if "." not in text:
+        text += ".0"
+    return text
 
 
 def _fmt_str(value: str) -> str:

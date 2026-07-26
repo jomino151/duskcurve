@@ -203,3 +203,209 @@ interval_seconds = 0.0
 
 def test_config_error_is_value_error():
     assert issubclass(ConfigError, ValueError)
+
+
+# --- Review fix: IMPORTANT 1 -- stray keypoints alongside a non-custom mode
+# must be rejected, otherwise dump_config (which only emits keypoints when
+# mode == "custom") would silently drop them and break round-trip equality.
+
+
+def test_non_custom_mode_with_populated_keypoints_rejected():
+    text = (
+        _base_toml(mode="reduce_eyestrain")
+        + """
+[[schedule.keypoints]]
+anchor = "wake"
+kelvin = 6500
+"""
+    )
+    with pytest.raises(ConfigError):
+        load_config(text)
+
+
+# --- Review fix: IMPORTANT 2 -- non-numeric values in numeric-coerced fields
+# must raise ConfigError, not a bare ValueError/TypeError leaking out of
+# float()/int().
+
+
+def test_range_min_kelvin_non_numeric_raises_config_error():
+    text = (
+        _base_toml()
+        + """
+[range]
+min_kelvin = "abc"
+max_kelvin = 6500
+"""
+    )
+    with pytest.raises(ConfigError):
+        load_config(text)
+
+
+def test_transition_seconds_non_numeric_raises_config_error():
+    text = (
+        _base_toml()
+        + """
+[transition]
+seconds = "abc"
+"""
+    )
+    with pytest.raises(ConfigError):
+        load_config(text)
+
+
+def test_tick_interval_seconds_non_numeric_raises_config_error():
+    text = (
+        _base_toml()
+        + """
+[tick]
+interval_seconds = "abc"
+"""
+    )
+    with pytest.raises(ConfigError):
+        load_config(text)
+
+
+def test_display_override_value_non_numeric_raises_config_error():
+    text = (
+        _base_toml()
+        + """
+[displays.DP-2]
+override_value = "abc"
+"""
+    )
+    with pytest.raises(ConfigError):
+        load_config(text)
+
+
+def test_keypoint_offset_min_non_numeric_raises_config_error():
+    text = (
+        _base_toml(mode="custom")
+        + """
+[[schedule.keypoints]]
+anchor = "wake"
+kelvin = 6500
+offset_min = "abc"
+"""
+    )
+    with pytest.raises(ConfigError):
+        load_config(text)
+
+
+# --- Review fix: MINOR -- previously-untested-but-enforced rules.
+
+
+def test_keypoint_kelvin_zero_rejected():
+    text = (
+        _base_toml(mode="custom")
+        + """
+[[schedule.keypoints]]
+anchor = "wake"
+kelvin = 0
+"""
+    )
+    with pytest.raises(ConfigError):
+        load_config(text)
+
+
+def test_keypoint_kelvin_negative_rejected():
+    text = (
+        _base_toml(mode="custom")
+        + """
+[[schedule.keypoints]]
+anchor = "wake"
+kelvin = -100
+"""
+    )
+    with pytest.raises(ConfigError):
+        load_config(text)
+
+
+def test_keypoint_kelvin_nan_rejected():
+    text = (
+        _base_toml(mode="custom")
+        + """
+[[schedule.keypoints]]
+anchor = "wake"
+kelvin = nan
+"""
+    )
+    with pytest.raises(ConfigError):
+        load_config(text)
+
+
+def test_keypoint_kelvin_infinite_rejected():
+    text = (
+        _base_toml(mode="custom")
+        + """
+[[schedule.keypoints]]
+anchor = "wake"
+kelvin = inf
+"""
+    )
+    with pytest.raises(ConfigError):
+        load_config(text)
+
+
+def test_min_kelvin_at_or_below_zero_rejected():
+    text = (
+        _base_toml()
+        + """
+[range]
+min_kelvin = 0
+max_kelvin = 6500
+"""
+    )
+    with pytest.raises(ConfigError):
+        load_config(text)
+
+
+def test_max_kelvin_at_or_above_100000_rejected():
+    text = (
+        _base_toml()
+        + """
+[range]
+min_kelvin = 1200
+max_kelvin = 100000
+"""
+    )
+    with pytest.raises(ConfigError):
+        load_config(text)
+
+
+def test_override_value_zero_rejected_for_warm_cap():
+    text = (
+        _base_toml()
+        + """
+[displays.DP-2]
+override_kind = "warm_cap"
+override_value = 0.0
+"""
+    )
+    with pytest.raises(ConfigError):
+        load_config(text)
+
+
+def test_override_value_zero_rejected_for_fixed():
+    text = (
+        _base_toml()
+        + """
+[displays.DP-2]
+override_kind = "fixed"
+override_value = 0.0
+"""
+    )
+    with pytest.raises(ConfigError):
+        load_config(text)
+
+
+def test_display_enabled_non_bool_rejected():
+    text = (
+        _base_toml()
+        + """
+[displays.DP-2]
+enabled = "yes"
+override_kind = "none"
+"""
+    )
+    with pytest.raises(ConfigError):
+        load_config(text)
