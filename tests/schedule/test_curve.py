@@ -82,24 +82,40 @@ def test_wrap_around_overnight_segment():
     assert result == pytest.approx(expected)
 
 
-def test_seasonal_reorder_guard_sorts_by_resolved_minute():
-    # List order deliberately wrong: the event anchor (wake=10:00) resolves
-    # earlier in the day than the clock anchor (20:00) that precedes it in
-    # the list. evaluate() must sort by resolved minute, not trust order.
+def test_list_order_defines_cycle_even_when_event_anchor_inverts_absolute_time():
+    # List order is the source of truth for the cyclic walk. Keypoint 3
+    # (bedtime, resolving to 21:30) lands chronologically *before* keypoint 2
+    # (sunset+60, resolving to 22:00) -- an inversion that would scramble a
+    # sort-by-resolved-minute implementation (it would reorder 21:30 ahead of
+    # 22:00, producing a spurious bump back up to 3400 after already reaching
+    # 2700). The new forward-monotonic-cycle evaluate must instead clamp the
+    # inverted keypoint to a zero-length segment and keep descending.
+    ctx = DayContext(
+        sunrise=_dt(6, 0),
+        sunset=_dt(21, 0),
+        wake=_dt(8, 0),
+        bedtime=_dt(21, 30),
+    )
     curve = Curve(
         [
-            Keypoint(ClockAnchor(20, 0), 3400),
-            Keypoint(EventAnchor("wake", 0), 6500),
+            Keypoint(ClockAnchor(20, 0), 6500),
+            Keypoint(EventAnchor("sunset", 60), 3400),  # sunset+60 -> 22:00
+            Keypoint(EventAnchor("bedtime", 0), 2700),  # bedtime -> 21:30 (earlier!)
+            Keypoint(ClockAnchor(23, 0), 2700),
         ]
     )
-    # Landing exactly on wake (10:00) should return its own kelvin.
-    assert curve.evaluate(_dt(10, 0), CTX) == pytest.approx(6500)
-    # Midway between wake (10:00) and the clock anchor (20:00) should be
-    # the monotonic in-between value, not something from a wrapped/garbled
-    # segment that would result from trusting list order.
-    result = curve.evaluate(_dt(15, 0), CTX)
-    expected = lerp_kelvin(6500, 3400, 0.5, "smoothstep")
-    assert result == pytest.approx(expected)
+    # The 20:00 -> 22:00 stretch must be strictly non-increasing; no bump.
+    samples = [_dt(20, 0), _dt(20, 30), _dt(21, 0), _dt(21, 30), _dt(22, 0), _dt(22, 30)]
+    values = [curve.evaluate(now, ctx) for now in samples]
+    for prev, cur in zip(values, values[1:], strict=False):
+        assert cur <= prev + 1e-9, f"evening temperature increased: {values}"
+    # Endpoints still resolve to their own kelvin.
+    assert curve.evaluate(_dt(20, 0), ctx) == pytest.approx(6500)
+    assert curve.evaluate(_dt(22, 30), ctx) == pytest.approx(2700)
+    # By 22:00 (the clamped/collapsed keypoints' shared instant) we've
+    # already reached the destination temperature -- not a garbled
+    # in-between value from a re-sorted segment.
+    assert curve.evaluate(_dt(22, 0), ctx) == pytest.approx(2700)
 
 
 def test_single_keypoint_returns_its_kelvin_everywhere():
