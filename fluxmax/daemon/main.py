@@ -23,7 +23,7 @@ from gi.repository import Gio, GLib  # noqa: E402
 from fluxmax.backend import MutterBackend  # noqa: E402
 from fluxmax.backend.gio_transport import GioMutterTransport  # noqa: E402
 from fluxmax.backend.nightlight import night_light_enabled, set_night_light  # noqa: E402
-from fluxmax.daemon.config import Config, default_config, dump_config, load_config  # noqa: E402
+from fluxmax.daemon.config import default_config, dump_config, load_config  # noqa: E402
 from fluxmax.daemon.orchestrator import Orchestrator  # noqa: E402
 from fluxmax.daemon.service import (  # noqa: E402
     BUS_NAME,
@@ -55,14 +55,38 @@ def _ensure_config_file(config_path: str) -> None:
     log.info("no config found; wrote default config to %s", config_path)
 
 
-def _read_config(config_path: str) -> Config:
-    with open(config_path, encoding="utf-8") as f:
-        return load_config(f.read())
-
-
 def _build_backend() -> MutterBackend:
     """Real MutterBackend over the real session-bus transport (mirrors fluxmax-apply)."""
     return MutterBackend(GioMutterTransport())
+
+
+class _ConfigFileWatchState:
+    """Dedup state for the config-file watcher (pure, no gi -- unit-testable directly).
+
+    Tracks the config-file text the daemon has already accounted for -- either
+    because it just wrote it itself (a D-Bus SetConfig) or already reloaded it
+    -- so a GFileMonitor notification carrying that exact same content is
+    recognized as already-applied rather than triggering a second, redundant
+    `service.reload_config()` (and a duplicate StatusChanged emission).
+    """
+
+    def __init__(self, initial_text: str) -> None:
+        self._last_seen = initial_text
+
+    def note_current_state(self, text: str) -> None:
+        """Call whenever the daemon itself is the reason the file now reads
+        `text` (e.g. right after any DaemonService mutation), so a subsequent
+        file-monitor notification for that same content is not mistaken for a
+        new external edit."""
+        self._last_seen = text
+
+    def is_new_change(self, text: str) -> bool:
+        """True (and records `text` as seen) iff `text` differs from what was
+        last seen -- i.e. this is a genuine, not-yet-applied change."""
+        if text == self._last_seen:
+            return False
+        self._last_seen = text
+        return True
 
 
 class _Daemon:
@@ -71,7 +95,9 @@ class _Daemon:
     def __init__(self) -> None:
         self.config_path = _config_path()
         _ensure_config_file(self.config_path)
-        self.config = _read_config(self.config_path)
+        with open(self.config_path, encoding="utf-8") as f:
+            config_text = f.read()
+        self.config = load_config(config_text)
 
         self.backend = _build_backend()
         self.orchestrator = Orchestrator(
@@ -79,10 +105,6 @@ class _Daemon:
             self.config,
             clock=lambda: datetime.now(ZoneInfo(self.config.location.timezone)),
         )
-
-        # Night Light takeover: remember the prior setting so we can restore it on exit.
-        self.night_light_was_enabled = night_light_enabled()
-        set_night_light(False)
 
         self.service = DaemonService(
             self.orchestrator, self.config_path, on_status_changed=self._emit_status_changed
@@ -93,10 +115,19 @@ class _Daemon:
         self._registration_id: int | None = None
         self._own_name_id: int | None = None
         self._file_monitor: Gio.FileMonitor | None = None
-        self._last_seen_config_text = dump_config(self.config)
+        self._config_watch = _ConfigFileWatchState(config_text)
         self._shutting_down = False
 
         self.loop = GLib.MainLoop()
+
+        # Night Light takeover is the LAST step of construction: everything above
+        # can fail without having touched Night Light at all, so nothing needs
+        # restoring in that case. (main() additionally guards the setup calls
+        # that happen *after* this constructor returns -- own_bus_name(),
+        # watch_config_file(), etc. -- restoring Night Light if any of those
+        # fail post-takeover.)
+        self.night_light_was_enabled = night_light_enabled()
+        set_night_light(False)
 
     # ------------------------------------------------------------------
     # D-Bus service lifecycle
@@ -127,6 +158,20 @@ class _Daemon:
         # changed timezone/location instead of being stuck with the config from
         # daemon startup.
         self.config = load_config(self.service.get_config())
+
+        # Re-read the actual on-disk bytes (not dump_config(self.config) -- a
+        # SetConfig writes the client's exact submitted text, which need not be
+        # byte-identical to our canonical serialization) and tell the config-file
+        # watcher this is the current, already-applied state. Without this, the
+        # GFileMonitor "changed" event that a SetConfig's write triggers would be
+        # seen as a *new* external edit and cause a redundant reload_config() +
+        # a second StatusChanged for the same change.
+        try:
+            with open(self.config_path, encoding="utf-8") as f:
+                self._config_watch.note_current_state(f.read())
+        except OSError:
+            log.exception("could not re-read %s after a config change", self.config_path)
+
         if self._connection is None:
             return
         self._connection.emit_signal(
@@ -154,11 +199,11 @@ class _Daemon:
             log.exception("could not read %s after a change notification", self.config_path)
             return
 
-        if text == self._last_seen_config_text:
-            # Either our own atomic write (e.g. a SetConfig via D-Bus) or a duplicate
-            # notification for the same change -- nothing new to reload.
+        if not self._config_watch.is_new_change(text):
+            # Either our own atomic write (e.g. a SetConfig via D-Bus, already
+            # accounted for in _emit_status_changed) or a duplicate notification
+            # for the same change -- nothing new to reload.
             return
-        self._last_seen_config_text = text
 
         try:
             self.service.reload_config()
@@ -219,16 +264,29 @@ def main() -> int:
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
 
+    # Night Light is taken over as the LAST step of _Daemon.__init__, so if
+    # construction itself fails, Night Light was never touched -- `daemon` stays
+    # unbound and there's nothing to restore. But own_bus_name()/watch_config_file()/
+    # install_signal_handlers() run *after* a successfully constructed daemon (Night
+    # Light already off); if any of those raise, restore Night Light before bailing
+    # out rather than leaving it permanently disabled.
+    daemon: _Daemon | None = None
     try:
         daemon = _Daemon()
+        daemon.own_bus_name()
+        daemon.watch_config_file()
+        GLib.timeout_add_seconds(
+            max(1, int(daemon.config.tick_interval_seconds)), daemon.tick_cb
+        )
+        daemon.install_signal_handlers()
     except Exception:
         log.exception("failed to initialize flux-max daemon")
+        if daemon is not None:
+            try:
+                set_night_light(daemon.night_light_was_enabled)
+            except Exception:
+                log.exception("failed to restore Night Light state after a failed startup")
         return 1
-
-    daemon.own_bus_name()
-    daemon.watch_config_file()
-    GLib.timeout_add_seconds(max(1, int(daemon.config.tick_interval_seconds)), daemon.tick_cb)
-    daemon.install_signal_handlers()
 
     try:
         daemon.loop.run()
