@@ -21,6 +21,10 @@ def solar_events(lat: float, lon: float, day: date, tz: tzinfo) -> SolarEvents:
     `lat`/`lon` are in degrees (lon east-positive). Uses the NOAA solar-position
     spreadsheet algorithm (refraction + solar radius correction baked into the
     90.833 degree zenith angle).
+
+    Note: inside the polar circles (permanent midnight sun or polar night),
+    the hour-angle argument to `math.acos` falls outside [-1, 1] and this
+    raises `ValueError` -- such latitudes are out of scope for this function.
     """
     noon_local = datetime(day.year, day.month, day.day, 12, tzinfo=tz)
     tz_hours = noon_local.utcoffset().total_seconds() / 3600
