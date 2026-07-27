@@ -275,6 +275,11 @@ def main() -> int:
         daemon = _Daemon()
         daemon.own_bus_name()
         daemon.watch_config_file()
+        # Apply gamma once immediately, rather than waiting for the first
+        # timer tick (up to tick_interval_seconds away): otherwise displays
+        # sit at neutral 6500 K -- a brief flash -- for that whole interval
+        # right after Night Light was just disabled above.
+        daemon.tick_cb()
         GLib.timeout_add_seconds(
             max(1, int(daemon.config.tick_interval_seconds)), daemon.tick_cb
         )
