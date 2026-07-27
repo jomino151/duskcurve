@@ -10,6 +10,7 @@ dev = ["pytest>=8", "ruff>=0.5"]
 
 [project.scripts]
 fluxmax-apply = "fluxmax.backend.cli:main"
+fluxmax-daemon = "fluxmax.daemon.main:main"
 
 [build-system]
 requires = ["setuptools>=68"]
