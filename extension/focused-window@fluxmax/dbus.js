@@ -30,10 +30,12 @@ export class WindowWatcherService {
         this._state = {appId: '', fullscreen: false, connector: ''};
         this._impl = Gio.DBusExportedObject.wrapJSObject(IFACE_XML, this);
         this._ownerId = null;
+        this._exported = false;
     }
 
     export() {
         this._impl.export(Gio.DBus.session, OBJECT_PATH);
+        this._exported = true;
         this._ownerId = Gio.bus_own_name(
             Gio.BusType.SESSION,
             BUS_NAME,
@@ -48,7 +50,13 @@ export class WindowWatcherService {
             Gio.bus_unown_name(this._ownerId);
             this._ownerId = null;
         }
-        this._impl.unexport();
+        // this._impl.unexport() asserts (GLib-GIO-CRITICAL) if called when
+        // not currently exported, so guard it explicitly rather than
+        // relying on it being silently idempotent.
+        if (this._exported) {
+            this._impl.unexport();
+            this._exported = false;
+        }
     }
 
     // D-Bus method: GetState() -> (s app_id, b fullscreen, s monitor_connector)
