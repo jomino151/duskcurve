@@ -3,10 +3,10 @@
 SYSTEM module: wires the pure core (fluxmax.daemon.config, .orchestrator,
 .service) to the real world -- the real Mutter D-Bus backend, GNOME Night
 Light takeover, the org.fluxmax.Daemon D-Bus service, config-file watching,
-and the GLib main loop. Verified by import + the M4 milestone-E
-manual/systemd run, not by a full behavioral unit test (see
-tests/daemon/test_main_smoke.py for the one live-dispatch smoke test that
-*is* covered).
+the org.fluxmax.WindowWatcher subscription (focused-window rules), and the
+GLib main loop. Verified by import + the M4 milestone-E manual/systemd run,
+not by a full behavioral unit test (see tests/daemon/test_main_smoke.py for
+the one live-dispatch smoke test that *is* covered).
 """
 import logging
 import os
@@ -25,12 +25,14 @@ from fluxmax.backend.gio_transport import GioMutterTransport  # noqa: E402
 from fluxmax.backend.nightlight import night_light_enabled, set_night_light  # noqa: E402
 from fluxmax.daemon.config import default_config, dump_config, load_config  # noqa: E402
 from fluxmax.daemon.orchestrator import Orchestrator  # noqa: E402
+from fluxmax.daemon.rules import WindowState  # noqa: E402
 from fluxmax.daemon.service import (  # noqa: E402
     BUS_NAME,
     OBJECT_PATH,
     DaemonService,
     export_on_connection,
 )
+from fluxmax.daemon.watcher import WindowWatcher  # noqa: E402
 
 log = logging.getLogger("fluxmax.daemon")
 
@@ -110,6 +112,7 @@ class _Daemon:
             self.orchestrator, self.config_path, on_status_changed=self._emit_status_changed
         )
         self.backend.subscribe_monitors_changed(self.orchestrator.on_monitors_changed)
+        self.watcher = WindowWatcher(self._on_window_changed)
 
         self._connection: Gio.DBusConnection | None = None
         self._registration_id: int | None = None
@@ -183,6 +186,21 @@ class _Daemon:
         )
 
     # ------------------------------------------------------------------
+    # Window watcher
+    # ------------------------------------------------------------------
+
+    def _on_window_changed(self, window: "WindowState | None") -> None:
+        """A focus/fullscreen/monitor change arrived from the shell extension."""
+        self.orchestrator.set_window_state(window)
+        # Apply immediately rather than waiting up to tick_interval_seconds -- a
+        # fullscreen game should not sit warm for two seconds after launching.
+        try:
+            self.orchestrator.tick()
+        except Exception:
+            log.exception("tick after a window change failed")
+        self._emit_status_changed(self.service.get_status())
+
+    # ------------------------------------------------------------------
     # Config file watch
     # ------------------------------------------------------------------
 
@@ -239,6 +257,14 @@ class _Daemon:
             return
         self._shutting_down = True
 
+        # Stop the window watcher first, before displays are reset: otherwise a
+        # late FocusChanged callback could re-apply gamma via _on_window_changed
+        # after (or interleaved with) teardown below.
+        try:
+            self.watcher.stop()
+        except Exception:
+            log.exception("failed to stop the window watcher")
+
         for display in self.backend.list_displays():
             try:
                 self.backend.reset(display.connector)
@@ -275,6 +301,7 @@ def main() -> int:
         daemon = _Daemon()
         daemon.own_bus_name()
         daemon.watch_config_file()
+        daemon.watcher.start()
         # Apply gamma once immediately, rather than waiting for the first
         # timer tick (up to tick_interval_seconds away): otherwise displays
         # sit at neutral 6500 K -- a brief flash -- for that whole interval
