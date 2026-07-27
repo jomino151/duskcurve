@@ -80,6 +80,8 @@ def resolve_rules(
     elif winning_rule.action == "force_day":
         action = RuleAction("fixed", float(day_kelvin))
     elif winning_rule.action == "fixed":
+        if winning_rule.action_kelvin is None:
+            raise ValueError("rule action 'fixed' requires action_kelvin to be set")
         action = RuleAction("fixed", float(winning_rule.action_kelvin))
     else:
         raise ValueError(f"unknown rule action: {winning_rule.action!r}")
