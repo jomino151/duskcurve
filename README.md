@@ -11,8 +11,8 @@ via a `[[rules]]` list in `config.toml`. Each table in the list is one rule.
 | `match_app_glob` | string or absent | none (unset) | Glob pattern (`fnmatch` syntax) matched against the focused window's app id, e.g. `"org.gimp.*"`. |
 | `match_fullscreen` | bool | `false` | If `true`, the rule only matches while the focused window is fullscreen. |
 | `action` | string | required | One of `"disable"` (turn the filter off — neutral colour), `"force_day"` (fixed at the configured daytime `max_kelvin`), or `"fixed"` (fixed at `action_kelvin`). |
-| `action_kelvin` | integer | required when `action = "fixed"`, else must be absent | The fixed colour temperature in Kelvin to apply. |
-| `scope` | string | `"window_monitor"` | Which display(s) the rule's action applies to: `"all"` (every display), `"window_monitor"` (only the display the focused window is on), or a specific connector name (e.g. `"DP-2"`). |
+| `action_kelvin` | positive integer | required when `action = "fixed"`, else must be absent | The fixed colour temperature in Kelvin to apply. Must be a positive integer (`> 0`, not a bool) — `0`, a negative value, or `true`/`false` all fail config validation. |
+| `scope` | non-empty string | `"window_monitor"` | Which display(s) the rule's action applies to: `"all"` (every display), `"window_monitor"` (only the display the focused window is on), or a specific connector name (e.g. `"DP-2"`). An empty string fails config validation. |
 
 At least one of `match_app_glob` or `match_fullscreen = true` must be set — a rule with
 neither would match every window forever.
