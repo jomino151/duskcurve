@@ -80,6 +80,7 @@ def test_importing_fluxmax_daemon_does_not_pull_in_gi():
 
 import pathlib  # noqa: E402
 import threading  # noqa: E402
+import time  # noqa: E402
 
 # This module also holds plain unit tests (decode_focus_payload, WindowState,
 # construction) that must keep running even where gi/Gio is unavailable, so
@@ -138,20 +139,32 @@ def test_bus_address():
         test_bus.down()
 
 
-def _pump_until(predicate, timeout_iterations=2000):
-    """Iterate the default main context until predicate() is true or we give up.
+def _pump_until(predicate, timeout=5.0):
+    """Iterate the default main context until predicate() is true or a
+    wall-clock deadline elapses.
 
     A bare `while not predicate(): ctx.iteration(True)` could hang the test
     suite forever if the expected event never arrives (e.g. a contract
-    mismatch swallowed by an exception handler); bounding the iterations
-    turns that into a normal, fast test failure instead.
+    mismatch swallowed by an exception handler): iteration(True) blocks until
+    *some* source becomes ready, and if none ever does, it never returns --
+    so no iteration count is ever enough to bound it. To make the deadline
+    real, a periodic GLib.timeout_add guard source is attached to the same
+    context; it guarantees the context always has something to dispatch, so
+    iteration(True) always returns promptly and the wall-clock deadline
+    below actually gets enforced. Returns False (never hangs, never raises)
+    on timeout, so callers can assert on it with their own message.
     """
     ctx = GLib.MainContext.default()
-    for _ in range(timeout_iterations):
-        if predicate():
-            return True
-        ctx.iteration(True)
-    return False
+    deadline = time.monotonic() + timeout
+    guard_id = GLib.timeout_add(20, lambda: True)
+    try:
+        while time.monotonic() < deadline:
+            if predicate():
+                return True
+            ctx.iteration(True)
+        return predicate()
+    finally:
+        GLib.source_remove(guard_id)
 
 
 def _export_stub_producer(connection, iface_xml, get_state_seed):
