@@ -172,3 +172,30 @@ def test_invalid_set_config_maps_to_dbus_invalid_args_error(tmp_path, bus_addres
 
     # Config on disk and in-process state are untouched by the failed call.
     assert config_path.read_text() == dump_config(cfg)
+
+
+def test_invalid_set_manual_temp_maps_to_dbus_invalid_args_error(tmp_path, bus_address):
+    cfg = default_config()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(dump_config(cfg))
+
+    conn = _connect(bus_address)
+    backend = MutterBackend(FakeMutterTransport())
+    orch = Orchestrator(backend, cfg, clock=lambda: datetime.now(ZoneInfo("UTC")))
+    service = DaemonService(orch, str(config_path))
+    export_on_connection(service, conn)
+    _own_name_and_wait(conn)
+
+    result = _call(
+        conn,
+        "SetManualTemp",
+        GLib.Variant("(sii)", ("DP-2", 0, 10)),
+        None,
+    )
+    assert "error" in result
+    exc = result["error"]
+    assert Gio.DBusError.get_remote_error(exc) == "org.freedesktop.DBus.Error.InvalidArgs"
+
+    # The rejected kelvin value must not have been stored: a subsequent tick
+    # must not raise (e.g. ZeroDivisionError from kelvin_to_mired(0)).
+    orch.tick()

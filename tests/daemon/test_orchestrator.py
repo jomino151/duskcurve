@@ -2,6 +2,8 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from fluxmax.backend import FakeMutterTransport, MutterBackend
 from fluxmax.color import build_ramp
 from fluxmax.daemon.config import DisplayConfig, default_config
@@ -119,6 +121,44 @@ def test_manual_temp_connector_specific_beats_all():
     orch.tick()
     assert be.get_gamma("DP-2") == build_ramp(4096, 2000)
     assert be.get_gamma("HDMI-1") == build_ramp(4096, 2500)
+
+
+def test_set_manual_temp_rejects_non_positive_kelvin_without_poisoning_ticks():
+    cfg = replace(default_config(), transition_seconds=0.0)
+    clock = FakeClock(_dt(13, 0))
+    be, _t, orch = _new(cfg, clock)
+
+    with pytest.raises(ValueError):
+        orch.set_manual_temp("DP-2", 0, 10)
+
+    # Rejected call must not have stored anything: a normal tick still
+    # produces the curve value, not a ZeroDivisionError from kelvin_to_mired.
+    orch.tick()
+    assert be.get_gamma("DP-2") == build_ramp(4096, 6500)
+
+    with pytest.raises(ValueError):
+        orch.set_manual_temp("DP-2", -5, 10)
+    orch.tick()
+    assert be.get_gamma("DP-2") == build_ramp(4096, 6500)
+
+    # A valid manual temp set afterwards still works normally.
+    orch.set_manual_temp("DP-2", 2000, 10)
+    orch.tick()
+    assert be.get_gamma("DP-2") == build_ramp(4096, 2000)
+
+
+def test_disabled_display_beats_manual_temp():
+    cfg = replace(
+        default_config(),
+        transition_seconds=0.0,
+        displays={"DP-2": DisplayConfig(enabled=False)},
+    )
+    clock = FakeClock(_dt(13, 0))
+    be, _t, orch = _new(cfg, clock)
+
+    orch.set_manual_temp("DP-2", 2000, 10)
+    orch.tick()
+    assert be.get_gamma("DP-2") == build_ramp(4096, NEUTRAL_KELVIN)
 
 
 def test_clear_manual_temp_reverts_to_curve():

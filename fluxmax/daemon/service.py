@@ -160,7 +160,7 @@ def export_on_connection(service: DaemonService, connection) -> int:
                     Gio.DBusError.UNKNOWN_METHOD,
                     f"Unknown method {method_name}",
                 )
-        except ConfigError as exc:
+        except (ConfigError, ValueError) as exc:
             invocation.return_error_literal(
                 Gio.dbus_error_quark(), Gio.DBusError.INVALID_ARGS, str(exc)
             )

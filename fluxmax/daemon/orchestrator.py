@@ -62,6 +62,8 @@ class Orchestrator:
         self._paused = paused
 
     def set_manual_temp(self, connector: str, kelvin: int, duration_min: int) -> None:
+        if kelvin <= 0:
+            raise ValueError(f"kelvin must be positive, got {kelvin}")
         expiry = self._clock() + timedelta(minutes=duration_min)
         self._manual[connector] = (float(kelvin), expiry)
 
