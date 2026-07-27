@@ -13,8 +13,10 @@ export default class FocusedWindowExtension extends Extension {
         this._monitorManagerSignalId = null;
         this._fullscreenId = null;
         this._monitorChangedId = null;
+        this._unmanagedId = null;
         this._service = null;
         this._monitors = null;
+        this._monitorManager = null;
 
         try {
             this._service = new WindowWatcherService();
@@ -26,9 +28,14 @@ export default class FocusedWindowExtension extends Extension {
                 this._onFocusChanged();
             });
 
-            this._monitorManagerSignalId = global.backend.get_monitor_manager().connect(
+            // Cached once here rather than re-fetched in disable(): Mutter
+            // creates the monitor manager once at backend init, so this is
+            // the same object either way, but caching makes that correct by
+            // construction instead of an assumption disable() has to repeat.
+            this._monitorManager = global.backend.get_monitor_manager();
+            this._monitorManagerSignalId = this._monitorManager.connect(
                 'monitors-changed', () => {
-                    this._monitors.refresh(() => this._publish());
+                    this._monitors?.refresh(() => this._publish());
                 });
 
             // refresh() is asynchronous; its completion lands on a later
@@ -56,13 +63,35 @@ export default class FocusedWindowExtension extends Extension {
 
         const win = global.display.focus_window;
 
-        if (this._fullscreenId !== null) {
-            this._focusWindow?.disconnect(this._fullscreenId);
-            this._fullscreenId = null;
-        }
-        if (this._monitorChangedId !== null) {
-            this._focusWindow?.disconnect(this._monitorChangedId);
-            this._monitorChangedId = null;
+        // Null each id BEFORE calling disconnect(), and don't let a throw
+        // from one disconnect() skip the others or skip reassigning
+        // _focusWindow/_publish() below. this._focusWindow can be a
+        // Meta.Window GObject wrapper that Mutter has already disposed
+        // (g_object_run_dispose() at the end of meta_window_unmanage()); a
+        // disconnect() call on a disposed GObject throws in GJS. If the id
+        // were nulled only after a (thrown) disconnect() call, it would
+        // stay non-null forever, this._focusWindow would never be
+        // reassigned, and this._publish() below would never run again --
+        // wedging the extension (and the daemon, stuck on the last
+        // published state) until a manual re-enable.
+        try {
+            if (this._fullscreenId !== null) {
+                const id = this._fullscreenId;
+                this._fullscreenId = null;
+                this._focusWindow?.disconnect(id);
+            }
+            if (this._monitorChangedId !== null) {
+                const id = this._monitorChangedId;
+                this._monitorChangedId = null;
+                this._focusWindow?.disconnect(id);
+            }
+            if (this._unmanagedId !== null) {
+                const id = this._unmanagedId;
+                this._unmanagedId = null;
+                this._focusWindow?.disconnect(id);
+            }
+        } catch (e) {
+            console.warn(`focused-window@fluxmax: _onFocusChanged() teardown error: ${e}`);
         }
 
         this._focusWindow = win;
@@ -70,6 +99,13 @@ export default class FocusedWindowExtension extends Extension {
         if (win !== null) {
             this._fullscreenId = win.connect('notify::fullscreen', () => this._publish());
             this._monitorChangedId = win.connect('monitor-changed', () => this._publish());
+            // Clear _focusWindow as soon as Mutter starts unmanaging this
+            // window, i.e. before g_object_run_dispose() runs on it, so a
+            // later disconnect() above never touches an already-disposed
+            // GObject wrapper.
+            this._unmanagedId = win.connect('unmanaged', () => {
+                this._focusWindow = null;
+            });
         }
 
         this._publish();
@@ -103,11 +139,11 @@ export default class FocusedWindowExtension extends Extension {
 
     disable() {
         // The disconnects below dereference global.display and
-        // global.backend.get_monitor_manager(), which can plausibly throw
-        // during a compositor-restart or shutdown transition. Unexporting
-        // the service and nulling our references must happen regardless,
-        // or the bus name is never released and the next enable() exports
-        // a second, duplicate object.
+        // this._monitorManager, which can plausibly throw during a
+        // compositor-restart or shutdown transition. Unexporting the
+        // service and nulling our references must happen regardless, or
+        // the bus name is never released and the next enable() exports a
+        // second, duplicate object.
         try {
             if (this._fullscreenId !== null) {
                 this._focusWindow?.disconnect(this._fullscreenId);
@@ -117,6 +153,10 @@ export default class FocusedWindowExtension extends Extension {
                 this._focusWindow?.disconnect(this._monitorChangedId);
                 this._monitorChangedId = null;
             }
+            if (this._unmanagedId !== null) {
+                this._focusWindow?.disconnect(this._unmanagedId);
+                this._unmanagedId = null;
+            }
             this._focusWindow = null;
 
             if (this._displaySignalId !== null) {
@@ -125,7 +165,7 @@ export default class FocusedWindowExtension extends Extension {
             }
 
             if (this._monitorManagerSignalId !== null) {
-                global.backend.get_monitor_manager().disconnect(this._monitorManagerSignalId);
+                this._monitorManager?.disconnect(this._monitorManagerSignalId);
                 this._monitorManagerSignalId = null;
             }
         } catch (e) {
@@ -134,6 +174,7 @@ export default class FocusedWindowExtension extends Extension {
             this._service?.unexport();
             this._service = null;
             this._monitors = null;
+            this._monitorManager = null;
         }
     }
 }
