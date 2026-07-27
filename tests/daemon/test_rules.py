@@ -1,3 +1,6 @@
+import subprocess
+import sys
+
 import pytest
 
 from fluxmax.daemon.rules import (
@@ -115,8 +118,9 @@ def test_rule_matches(rule, window, expected):
 
 
 def test_rules_module_imports_no_gi():
-    import sys
-
-    import fluxmax.daemon.rules  # noqa: F401
-
-    assert not any(m == "gi" or m.startswith("gi.") for m in sys.modules)
+    code = (
+        "import sys; import fluxmax.daemon.rules; "
+        "assert not any(m == 'gi' or m.startswith('gi.') for m in sys.modules), "
+        "'fluxmax.daemon.rules pulled in gi'"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)
