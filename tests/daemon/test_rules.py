@@ -102,6 +102,16 @@ def test_unknown_action_raises():
         resolve_rules(_win(), [rule], CONNECTORS)
 
 
+def test_fixed_action_without_kelvin_raises():
+    # Config validation prevents this from arising via load_config(), but a
+    # programmatically constructed Rule(action="fixed") with no action_kelvin
+    # must fail loudly here rather than raising a bare TypeError deeper down
+    # (float(None)) when tick() calls resolve_rules().
+    rule = Rule(action="fixed", match_app_glob="*", scope="all")
+    with pytest.raises(ValueError, match="action_kelvin"):
+        resolve_rules(_win(), [rule], CONNECTORS)
+
+
 @pytest.mark.parametrize(
     ("rule", "window", "expected"),
     [

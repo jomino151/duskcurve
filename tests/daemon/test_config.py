@@ -458,6 +458,7 @@ scope = "all"
         '[[rules]]\naction = "explode"\nmatch_fullscreen = true\n',            # unknown action
         '[[rules]]\naction = "fixed"\nmatch_fullscreen = true\n',              # fixed w/o kelvin
         '[[rules]]\naction = "fixed"\naction_kelvin = 0\nmatch_fullscreen = true\n',
+        '[[rules]]\naction = "fixed"\naction_kelvin = true\nmatch_fullscreen = true\n',   # bool
         '[[rules]]\naction = "disable"\naction_kelvin = 3000\nmatch_fullscreen = true\n',
         '[[rules]]\naction = "disable"\n',                                     # matches everything
         '[[rules]]\naction = "disable"\nmatch_fullscreen = false\n',           # matches everything
