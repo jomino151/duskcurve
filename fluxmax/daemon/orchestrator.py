@@ -13,6 +13,7 @@ from fluxmax.backend import MutterBackend
 from fluxmax.color import build_ramp, kelvin_to_mired, mired_to_kelvin
 from fluxmax.daemon.config import Config, DisplayConfig
 from fluxmax.daemon.overrides import apply_override
+from fluxmax.daemon.rules import NO_ACTION, RuleAction, WindowState, resolve_rules
 from fluxmax.schedule import (
     MODES,
     ClockAnchor,
@@ -53,6 +54,7 @@ class Orchestrator:
         self._paused = False
         # connector -> (kelvin, expiry); connector "" applies to all connectors.
         self._manual: dict[str, tuple[float, datetime]] = {}
+        self._window: WindowState | None = None
 
     def set_config(self, config: Config) -> None:
         self._config = config
@@ -70,6 +72,10 @@ class Orchestrator:
     def clear_manual_temp(self, connector: str) -> None:
         self._manual.pop(connector, None)
 
+    def set_window_state(self, window: WindowState | None) -> None:
+        """Store the focused/fullscreen window state. Does not tick; the caller must."""
+        self._window = window
+
     def on_monitors_changed(self) -> None:
         connectors = {d.connector for d in self._backend.list_displays()}
         for connector in list(self._current_k):
@@ -83,9 +89,15 @@ class Orchestrator:
         ts = self._config.transition_seconds
         factor = 1.0 if ts <= 0 else min(1.0, dt / ts)
 
-        for display in self._backend.list_displays():
+        displays = self._backend.list_displays()
+        connectors = [d.connector for d in displays]
+        actions = resolve_rules(
+            self._window, self._config.rules, connectors, day_kelvin=self._config.max_kelvin
+        )
+
+        for display in displays:
             connector = display.connector
-            target_k = self._raw_target(connector, now, ctx)
+            target_k = self._raw_target(connector, now, ctx, actions)
 
             if connector not in self._current_k:
                 current_k = target_k
@@ -102,17 +114,27 @@ class Orchestrator:
         self._last_tick_dt = now
 
     def status(self) -> dict:
+        displays = self._backend.list_displays()
+        actions = resolve_rules(
+            self._window,
+            self._config.rules,
+            [d.connector for d in displays],
+            day_kelvin=self._config.max_kelvin,
+        )
+
         per_display = []
-        for display in self._backend.list_displays():
+        for display in displays:
             connector = display.connector
             dc = self._config.displays.get(connector, DisplayConfig())
             current_k = self._current_k.get(connector, NEUTRAL_KELVIN)
+            action = actions.get(connector, NO_ACTION)
             per_display.append(
                 {
                     "connector": connector,
                     "current_k": round(current_k),
                     "enabled": dc.enabled,
                     "override": dc.override_kind,
+                    "rule_action": {"kind": action.kind, "kelvin": action.kelvin},
                 }
             )
         return {
@@ -120,6 +142,13 @@ class Orchestrator:
             "paused": self._paused,
             "per_display": per_display,
             "next_transition": None,
+            "window": None
+            if self._window is None
+            else {
+                "app_id": self._window.app_id,
+                "fullscreen": self._window.fullscreen,
+                "monitor_connector": self._window.monitor_connector,
+            },
         }
 
     # ------------------------------------------------------------------
@@ -167,7 +196,9 @@ class Orchestrator:
 
         return None
 
-    def _raw_target(self, connector: str, now: datetime, ctx: DayContext) -> float:
+    def _raw_target(
+        self, connector: str, now: datetime, ctx: DayContext, actions: dict[str, RuleAction]
+    ) -> float:
         if self._paused:
             return NEUTRAL_KELVIN
 
@@ -178,6 +209,12 @@ class Orchestrator:
         manual = self._manual_kelvin(connector, now)
         if manual is not None:
             return manual
+
+        action = actions.get(connector, NO_ACTION)
+        if action.kind == "disable":
+            return NEUTRAL_KELVIN
+        if action.kind == "fixed":
+            return action.kelvin
 
         base = self._curve.evaluate(now, ctx)
         return apply_override(base, dc.override_kind, dc.override_value)
