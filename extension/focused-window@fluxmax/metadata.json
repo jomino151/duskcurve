@@ -1,0 +1,8 @@
+{
+  "uuid": "focused-window@fluxmax",
+  "name": "flux-max Focused Window Watcher",
+  "description": "Publishes the focused window's app-id, fullscreen state and monitor connector on the session bus for the flux-max daemon.",
+  "shell-version": ["46"],
+  "session-modes": ["user"],
+  "url": "https://github.com/jomino151/flux-max"
+}

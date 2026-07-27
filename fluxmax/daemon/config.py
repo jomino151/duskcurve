@@ -1,7 +1,8 @@
 """TOML config schema for the flux-max daemon.
 
 PURE module: stdlib only (tomllib, zoneinfo, dataclasses, re) plus
-fluxmax.schedule.MODES for validating the `mode` field. No gi/D-Bus/GLib.
+fluxmax.schedule.MODES for validating the `mode` field and fluxmax.daemon.rules
+for the `Rule` dataclass and `RULE_ACTIONS`. No gi/D-Bus/GLib.
 
 `dump_config` is a small hand-written TOML serializer (tomli_w is not
 installed) whose output is guaranteed to round-trip through `load_config`
@@ -15,6 +16,7 @@ import tomllib
 from dataclasses import dataclass, field
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from fluxmax.daemon.rules import RULE_ACTIONS, Rule
 from fluxmax.schedule import MODES
 
 _HHMM_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
@@ -61,6 +63,7 @@ class Config:
     transition_seconds: float = 20.0
     tick_interval_seconds: float = 2.0
     displays: dict[str, DisplayConfig] = field(default_factory=dict)  # keyed by connector
+    rules: tuple[Rule, ...] = ()
 
 
 def default_config() -> Config:
@@ -243,6 +246,60 @@ def _validate_displays(raw: dict) -> dict[str, DisplayConfig]:
     return {name: _validate_display(name, section) for name, section in raw.items()}
 
 
+def _validate_rule(raw: dict) -> Rule:
+    action = raw.get("action")
+    if not isinstance(action, str) or action not in RULE_ACTIONS:
+        raise ConfigError(
+            f"[[rules]] action must be one of {sorted(RULE_ACTIONS)}, got {action!r}"
+        )
+
+    action_kelvin = raw.get("action_kelvin")
+    if action == "fixed":
+        if not isinstance(action_kelvin, int) or isinstance(action_kelvin, bool) or (
+            action_kelvin <= 0
+        ):
+            raise ConfigError(
+                f"[[rules]] action_kelvin must be a positive integer when action == 'fixed', "
+                f"got {action_kelvin!r}"
+            )
+    elif action_kelvin is not None:
+        raise ConfigError(
+            f"[[rules]] action_kelvin is only valid when action == 'fixed' (action is {action!r})"
+        )
+
+    match_app_glob = raw.get("match_app_glob")
+    if match_app_glob is not None and not isinstance(match_app_glob, str):
+        raise ConfigError(f"[[rules]] match_app_glob must be a string, got {match_app_glob!r}")
+
+    match_fullscreen = raw.get("match_fullscreen", False)
+    if not isinstance(match_fullscreen, bool):
+        raise ConfigError(
+            f"[[rules]] match_fullscreen must be a bool, got {match_fullscreen!r}"
+        )
+
+    if match_app_glob is None and match_fullscreen is not True:
+        raise ConfigError(
+            "[[rules]] must set match_app_glob and/or match_fullscreen = true; "
+            "a rule with neither matches every window forever"
+        )
+
+    scope = raw.get("scope", "window_monitor")
+    if not isinstance(scope, str) or not scope:
+        raise ConfigError(f"[[rules]] scope must be a non-empty string, got {scope!r}")
+
+    return Rule(
+        action=action,
+        match_app_glob=match_app_glob,
+        match_fullscreen=match_fullscreen,
+        action_kelvin=action_kelvin,
+        scope=scope,
+    )
+
+
+def _validate_rules(raw: list) -> tuple[Rule, ...]:
+    return tuple(_validate_rule(rule) for rule in raw)
+
+
 def load_config(text: str) -> Config:
     """Parse and validate a TOML string, raising ConfigError on bad input."""
     try:
@@ -261,6 +318,7 @@ def load_config(text: str) -> Config:
     transition_seconds = _validate_transition(doc.get("transition", {}))
     tick_interval_seconds = _validate_tick(doc.get("tick", {}))
     displays = _validate_displays(doc.get("displays", {}))
+    rules = _validate_rules(doc.get("rules", []))
 
     return Config(
         location=location,
@@ -273,6 +331,7 @@ def load_config(text: str) -> Config:
         transition_seconds=transition_seconds,
         tick_interval_seconds=tick_interval_seconds,
         displays=displays,
+        rules=rules,
     )
 
 
@@ -358,6 +417,17 @@ def dump_config(cfg: Config) -> str:
         lines.append(f"enabled = {_fmt_bool(disp.enabled)}")
         lines.append(f"override_kind = {_fmt_str(disp.override_kind)}")
         lines.append(f"override_value = {_fmt_float(disp.override_value)}")
+        lines.append("")
+
+    for rule in cfg.rules:
+        lines.append("[[rules]]")
+        if rule.match_app_glob is not None:
+            lines.append(f"match_app_glob = {_fmt_str(rule.match_app_glob)}")
+        lines.append(f"match_fullscreen = {_fmt_bool(rule.match_fullscreen)}")
+        lines.append(f"action = {_fmt_str(rule.action)}")
+        if rule.action_kelvin is not None:
+            lines.append(f"action_kelvin = {int(rule.action_kelvin)}")
+        lines.append(f"scope = {_fmt_str(rule.scope)}")
         lines.append("")
 
     return "\n".join(lines).rstrip("\n") + "\n"

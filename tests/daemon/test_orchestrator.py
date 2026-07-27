@@ -8,6 +8,7 @@ from fluxmax.backend import FakeMutterTransport, MutterBackend
 from fluxmax.color import build_ramp
 from fluxmax.daemon.config import DisplayConfig, default_config
 from fluxmax.daemon.orchestrator import NEUTRAL_KELVIN, Orchestrator
+from fluxmax.daemon.rules import Rule, WindowState
 
 BERLIN = ZoneInfo("Europe/Berlin")
 DAY = (2026, 7, 25)
@@ -232,7 +233,7 @@ def test_status_shape():
     connectors = {d["connector"] for d in status["per_display"]}
     assert connectors == {"DP-2", "HDMI-1"}
     for d in status["per_display"]:
-        assert set(d.keys()) == {"connector", "current_k", "enabled", "override"}
+        assert set(d.keys()) == {"connector", "current_k", "enabled", "override", "rule_action"}
         assert isinstance(d["current_k"], int)
         assert isinstance(d["enabled"], bool)
         assert isinstance(d["override"], str)
@@ -246,3 +247,138 @@ def test_status_before_any_tick_reports_neutral():
     status = orch.status()
     for d in status["per_display"]:
         assert d["current_k"] == round(NEUTRAL_KELVIN)
+
+
+def _fs_disable_cfg(**kw):
+    return replace(
+        default_config(),
+        rules=(Rule(action="disable", match_fullscreen=True, scope="window_monitor"),),
+        transition_seconds=0.0,
+        **kw,
+    )
+
+
+def test_rule_disables_only_the_window_monitor():
+    clock = FakeClock(_dt(23, 0))
+    be, t, orch = _new(_fs_disable_cfg(), clock)
+    orch.tick()
+    night_dp2 = orch.status()["per_display"][0]["current_k"]
+    assert night_dp2 < NEUTRAL_KELVIN          # the schedule is warming at 23:00
+
+    orch.set_window_state(WindowState("org.game.Game", True, "DP-2"))
+    orch.tick()
+    per = {d["connector"]: d for d in orch.status()["per_display"]}
+    assert per["DP-2"]["current_k"] == round(NEUTRAL_KELVIN)
+    assert per["HDMI-1"]["current_k"] == night_dp2
+
+
+def test_rule_lifts_and_restores():
+    clock = FakeClock(_dt(23, 0))
+    be, t, orch = _new(_fs_disable_cfg(), clock)
+    orch.tick()
+    warm = orch.status()["per_display"][0]["current_k"]
+
+    orch.set_window_state(WindowState("org.game.Game", True, "DP-2"))
+    orch.tick()
+    assert orch.status()["per_display"][0]["current_k"] == round(NEUTRAL_KELVIN)
+
+    orch.set_window_state(None)
+    orch.tick()
+    assert orch.status()["per_display"][0]["current_k"] == warm
+
+
+def test_manual_temp_outranks_a_rule():
+    clock = FakeClock(_dt(23, 0))
+    be, t, orch = _new(_fs_disable_cfg(), clock)
+    orch.set_window_state(WindowState("org.game.Game", True, "DP-2"))
+    orch.set_manual_temp("DP-2", 2500, 60)
+    orch.tick()
+    assert orch.status()["per_display"][0]["current_k"] == 2500
+
+
+def test_paused_outranks_a_fixed_rule():
+    cfg = replace(
+        default_config(),
+        rules=(Rule(action="fixed", action_kelvin=3000, match_app_glob="*", scope="all"),),
+        transition_seconds=0.0,
+    )
+    clock = FakeClock(_dt(23, 0))
+    be, t, orch = _new(cfg, clock)
+    orch.set_window_state(WindowState("org.example.App", False, "DP-2"))
+    orch.set_paused(True)
+    orch.tick()
+    assert orch.status()["per_display"][0]["current_k"] == round(NEUTRAL_KELVIN)
+
+
+def test_disabled_display_outranks_a_fixed_rule():
+    cfg = replace(
+        default_config(),
+        displays={"DP-2": DisplayConfig(enabled=False)},
+        rules=(Rule(action="fixed", action_kelvin=3000, match_app_glob="*", scope="all"),),
+        transition_seconds=0.0,
+    )
+    clock = FakeClock(_dt(23, 0))
+    be, t, orch = _new(cfg, clock)
+    orch.set_window_state(WindowState("org.example.App", False, "DP-2"))
+    orch.tick()
+    per = {d["connector"]: d for d in orch.status()["per_display"]}
+    assert per["DP-2"]["current_k"] == round(NEUTRAL_KELVIN)
+    assert per["HDMI-1"]["current_k"] == 3000
+
+
+def test_rule_change_is_eased_not_snapped():
+    cfg = replace(
+        default_config(),
+        rules=(Rule(action="disable", match_fullscreen=True, scope="window_monitor"),),
+        transition_seconds=20.0,
+    )
+    clock = FakeClock(_dt(23, 0))
+    be, t, orch = _new(cfg, clock)
+    orch.tick()
+    warm = orch.status()["per_display"][0]["current_k"]
+
+    orch.set_window_state(WindowState("org.game.Game", True, "DP-2"))
+    clock.advance(2.0)
+    orch.tick()
+    mid = orch.status()["per_display"][0]["current_k"]
+    assert warm < mid < round(NEUTRAL_KELVIN)
+
+
+def test_force_day_uses_config_max_kelvin():
+    cfg = replace(
+        default_config(),
+        max_kelvin=5800.0,
+        rules=(Rule(action="force_day", match_app_glob="*", scope="all"),),
+        transition_seconds=0.0,
+    )
+    clock = FakeClock(_dt(23, 0))
+    be, t, orch = _new(cfg, clock)
+    orch.set_window_state(WindowState("org.example.App", False, "DP-2"))
+    orch.tick()
+    assert orch.status()["per_display"][0]["current_k"] == 5800
+
+
+def test_status_reports_window_and_rule_action():
+    clock = FakeClock(_dt(23, 0))
+    be, t, orch = _new(_fs_disable_cfg(), clock)
+    assert orch.status()["window"] is None
+    assert orch.status()["per_display"][0]["rule_action"] == {"kind": "none", "kelvin": None}
+
+    orch.set_window_state(WindowState("org.game.Game", True, "DP-2"))
+    st = orch.status()
+    assert st["window"] == {
+        "app_id": "org.game.Game",
+        "fullscreen": True,
+        "monitor_connector": "DP-2",
+    }
+    per = {d["connector"]: d for d in st["per_display"]}
+    assert per["DP-2"]["rule_action"] == {"kind": "disable", "kelvin": None}
+    assert per["HDMI-1"]["rule_action"] == {"kind": "none", "kelvin": None}
+
+
+def test_m4_status_keys_are_unchanged():
+    clock = FakeClock(_dt(23, 0))
+    be, t, orch = _new(default_config(), clock)
+    st = orch.status()
+    assert set(st) >= {"mode", "paused", "per_display", "next_transition"}
+    assert set(st["per_display"][0]) >= {"connector", "current_k", "enabled", "override"}

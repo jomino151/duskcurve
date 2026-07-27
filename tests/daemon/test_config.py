@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from fluxmax.daemon.config import (
@@ -10,6 +12,7 @@ from fluxmax.daemon.config import (
     dump_config,
     load_config,
 )
+from fluxmax.daemon.rules import Rule
 
 
 def test_default_config_values():
@@ -409,3 +412,62 @@ override_kind = "none"
     )
     with pytest.raises(ConfigError):
         load_config(text)
+
+
+def test_no_rules_section_yields_empty_tuple():
+    cfg = load_config(dump_config(default_config()))
+    assert cfg.rules == ()
+
+
+def test_rules_round_trip():
+    cfg = replace(
+        default_config(),
+        rules=(
+            Rule(action="disable", match_fullscreen=True, scope="window_monitor"),
+            Rule(action="fixed", action_kelvin=3000, match_app_glob="org.gimp.*", scope="all"),
+            Rule(action="force_day", match_app_glob="*blender*", scope="DP-2"),
+        ),
+    )
+    assert load_config(dump_config(cfg)) == cfg
+
+
+def test_rule_parsed_from_hand_written_toml():
+    text = dump_config(default_config()) + """
+[[rules]]
+match_app_glob = "steam_app_*"
+match_fullscreen = true
+action = "disable"
+scope = "all"
+"""
+    cfg = load_config(text)
+    assert cfg.rules == (
+        Rule(
+            action="disable",
+            match_app_glob="steam_app_*",
+            match_fullscreen=True,
+            action_kelvin=None,
+            scope="all",
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        '[[rules]]\nmatch_fullscreen = true\n',                                # no action
+        '[[rules]]\naction = "explode"\nmatch_fullscreen = true\n',            # unknown action
+        '[[rules]]\naction = "fixed"\nmatch_fullscreen = true\n',              # fixed w/o kelvin
+        '[[rules]]\naction = "fixed"\naction_kelvin = 0\nmatch_fullscreen = true\n',
+        '[[rules]]\naction = "fixed"\naction_kelvin = true\nmatch_fullscreen = true\n',   # bool
+        '[[rules]]\naction = "disable"\naction_kelvin = 3000\nmatch_fullscreen = true\n',
+        '[[rules]]\naction = "disable"\n',                                     # matches everything
+        '[[rules]]\naction = "disable"\nmatch_fullscreen = false\n',           # matches everything
+        '[[rules]]\naction = "disable"\nmatch_app_glob = 12\n',                # glob not a string
+        '[[rules]]\naction = "disable"\nmatch_fullscreen = "yes"\n',           # not a bool
+        '[[rules]]\naction = "disable"\nmatch_fullscreen = true\nscope = ""\n',
+        '[[rules]]\naction = "disable"\nmatch_fullscreen = true\nscope = 3\n',
+    ],
+)
+def test_invalid_rule_blocks_are_rejected(block):
+    with pytest.raises(ConfigError):
+        load_config(dump_config(default_config()) + "\n" + block)

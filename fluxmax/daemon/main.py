@@ -3,10 +3,10 @@
 SYSTEM module: wires the pure core (fluxmax.daemon.config, .orchestrator,
 .service) to the real world -- the real Mutter D-Bus backend, GNOME Night
 Light takeover, the org.fluxmax.Daemon D-Bus service, config-file watching,
-and the GLib main loop. Verified by import + the M4 milestone-E
-manual/systemd run, not by a full behavioral unit test (see
-tests/daemon/test_main_smoke.py for the one live-dispatch smoke test that
-*is* covered).
+the org.fluxmax.WindowWatcher subscription (focused-window rules), and the
+GLib main loop. Verified by import + the M4 milestone-E manual/systemd run,
+not by a full behavioral unit test (see tests/daemon/test_main_smoke.py for
+the one live-dispatch smoke test that *is* covered).
 """
 import logging
 import os
@@ -25,12 +25,14 @@ from fluxmax.backend.gio_transport import GioMutterTransport  # noqa: E402
 from fluxmax.backend.nightlight import night_light_enabled, set_night_light  # noqa: E402
 from fluxmax.daemon.config import default_config, dump_config, load_config  # noqa: E402
 from fluxmax.daemon.orchestrator import Orchestrator  # noqa: E402
+from fluxmax.daemon.rules import WindowState  # noqa: E402
 from fluxmax.daemon.service import (  # noqa: E402
     BUS_NAME,
     OBJECT_PATH,
     DaemonService,
     export_on_connection,
 )
+from fluxmax.daemon.watcher import WindowWatcher  # noqa: E402
 
 log = logging.getLogger("fluxmax.daemon")
 
@@ -110,6 +112,7 @@ class _Daemon:
             self.orchestrator, self.config_path, on_status_changed=self._emit_status_changed
         )
         self.backend.subscribe_monitors_changed(self.orchestrator.on_monitors_changed)
+        self.watcher = WindowWatcher(self._on_window_changed)
 
         self._connection: Gio.DBusConnection | None = None
         self._registration_id: int | None = None
@@ -151,6 +154,24 @@ class _Daemon:
     def _on_name_lost(self, _connection: "Gio.DBusConnection | None", name: str) -> None:
         log.warning("could not acquire or lost bus name %s (another instance running?)", name)
 
+    def _emit_status_signal(self, status_json: str) -> None:
+        """Bare StatusChanged emitter -- no config-mirror side effects.
+
+        Use this (not `_emit_status_changed`) for any caller whose status
+        change was NOT caused by the daemon itself writing the config file --
+        e.g. a window-focus event. See `_emit_status_changed` for why the two
+        must stay separate.
+        """
+        if self._connection is None:
+            return
+        self._connection.emit_signal(
+            None,
+            OBJECT_PATH,
+            _INTERFACE_NAME,
+            "StatusChanged",
+            GLib.Variant("(s)", (status_json,)),
+        )
+
     def _emit_status_changed(self, status_json: str) -> None:
         # DaemonService fires this after every mutation (SetConfig, ReloadConfig,
         # SetPaused, ...). Refresh our own config mirror here so the orchestrator's
@@ -166,21 +187,44 @@ class _Daemon:
         # GFileMonitor "changed" event that a SetConfig's write triggers would be
         # seen as a *new* external edit and cause a redundant reload_config() +
         # a second StatusChanged for the same change.
+        #
+        # CAUTION: this bookkeeping must ONLY run for changes the daemon itself
+        # wrote to the config file (SetConfig et al). A window-focus event is
+        # NOT such a change -- it must call `_emit_status_signal` directly
+        # instead of this method. If a focus change ran this method, it would
+        # stamp `note_current_state` with whatever the config file currently
+        # contains, which can race a pending-but-not-yet-applied external edit
+        # (the user just saved new rules; the GFileMonitor "changed"
+        # notification for that edit hasn't fired yet) and cause that edit's
+        # `reload_config()` to be silently skipped as "already applied". Do
+        # not "simplify" this back into one method.
         try:
             with open(self.config_path, encoding="utf-8") as f:
                 self._config_watch.note_current_state(f.read())
         except OSError:
             log.exception("could not re-read %s after a config change", self.config_path)
 
-        if self._connection is None:
-            return
-        self._connection.emit_signal(
-            None,
-            OBJECT_PATH,
-            _INTERFACE_NAME,
-            "StatusChanged",
-            GLib.Variant("(s)", (status_json,)),
-        )
+        self._emit_status_signal(status_json)
+
+    # ------------------------------------------------------------------
+    # Window watcher
+    # ------------------------------------------------------------------
+
+    def _on_window_changed(self, window: "WindowState | None") -> None:
+        """A focus/fullscreen/monitor change arrived from the shell extension."""
+        self.orchestrator.set_window_state(window)
+        # Apply immediately rather than waiting up to tick_interval_seconds -- a
+        # fullscreen game should not sit warm for two seconds after launching.
+        try:
+            self.orchestrator.tick()
+        except Exception:
+            log.exception("tick after a window change failed")
+        # Bare signal emit only -- NOT _emit_status_changed(), which would also
+        # mirror the on-disk config into the file-watcher's dedup state. A
+        # window event has nothing to do with the config file; running that
+        # bookkeeping here could mask a just-saved, not-yet-reloaded external
+        # edit (see _emit_status_changed's docstring).
+        self._emit_status_signal(self.service.get_status())
 
     # ------------------------------------------------------------------
     # Config file watch
@@ -239,6 +283,14 @@ class _Daemon:
             return
         self._shutting_down = True
 
+        # Stop the window watcher first, before displays are reset: otherwise a
+        # late FocusChanged callback could re-apply gamma via _on_window_changed
+        # after (or interleaved with) teardown below.
+        try:
+            self.watcher.stop()
+        except Exception:
+            log.exception("failed to stop the window watcher")
+
         for display in self.backend.list_displays():
             try:
                 self.backend.reset(display.connector)
@@ -275,6 +327,14 @@ def main() -> int:
         daemon = _Daemon()
         daemon.own_bus_name()
         daemon.watch_config_file()
+        try:
+            daemon.watcher.start()
+        except Exception:
+            # The window watcher is optional by design (graceful degradation:
+            # window rules go inert, the schedule keeps running unchanged) --
+            # unlike own_bus_name()/watch_config_file() above, its failure
+            # must not abort daemon startup or revert Night Light.
+            log.exception("window watcher failed to start; window rules will be inert")
         # Apply gamma once immediately, rather than waiting for the first
         # timer tick (up to tick_interval_seconds away): otherwise displays
         # sit at neutral 6500 K -- a brief flash -- for that whole interval
