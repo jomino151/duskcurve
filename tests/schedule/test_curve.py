@@ -4,7 +4,15 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from fluxmax.color import lerp_kelvin
-from fluxmax.schedule.curve import ClockAnchor, Curve, DayContext, EventAnchor, Keypoint
+from fluxmax.schedule.curve import (
+    ClockAnchor,
+    Curve,
+    DayContext,
+    EventAnchor,
+    Keypoint,
+    anchor_minutes,
+    walk_minutes,
+)
 
 BERLIN = ZoneInfo("Europe/Berlin")
 DAY = date(2026, 7, 25)
@@ -12,6 +20,12 @@ DAY = date(2026, 7, 25)
 
 def _dt(hour: int, minute: int, second: int = 0) -> datetime:
     return datetime(DAY.year, DAY.month, DAY.day, hour, minute, second, tzinfo=BERLIN)
+
+
+def _ctx(**overrides: datetime) -> DayContext:
+    defaults = dict(sunrise=_dt(6, 0), sunset=_dt(20, 0), wake=_dt(10, 0), bedtime=_dt(23, 0))
+    defaults.update(overrides)
+    return DayContext(**defaults)
 
 
 CTX = DayContext(
@@ -133,3 +147,67 @@ def test_bad_event_name_raises_value_error():
     curve = Curve([Keypoint(EventAnchor("noon", 0), 5000), Keypoint(ClockAnchor(8, 0), 6500)])
     with pytest.raises(ValueError):
         curve.evaluate(_dt(9, 0), CTX)
+
+
+def test_anchor_minutes_resolves_a_clock_anchor():
+    ctx = _ctx()
+    assert anchor_minutes(ClockAnchor(6, 30), ctx) == 390
+
+
+def test_anchor_minutes_resolves_an_event_anchor_with_offset():
+    ctx = _ctx(sunset=datetime(2026, 7, 29, 21, 0))
+    assert anchor_minutes(EventAnchor("sunset", -60), ctx) == 20 * 60
+
+
+def test_anchor_minutes_wraps_modulo_a_day():
+    ctx = _ctx(wake=datetime(2026, 7, 29, 0, 30))
+    assert anchor_minutes(EventAnchor("wake", -60), ctx) == 1410
+
+
+def test_anchor_minutes_rejects_an_unknown_event():
+    with pytest.raises(ValueError):
+        anchor_minutes(EventAnchor("lunchtime", 0), _ctx())
+
+
+def test_walk_minutes_is_non_decreasing_and_keeps_authored_order():
+    ctx = _ctx()
+    kps = [
+        Keypoint(EventAnchor("wake", 0), 6500),
+        Keypoint(EventAnchor("sunset", 60), 3400),
+        Keypoint(EventAnchor("bedtime", 0), 2700),
+        Keypoint(EventAnchor("wake", -30), 2700),
+    ]
+    walk = walk_minutes(kps, ctx)
+    assert len(walk) == len(kps)
+    assert walk == sorted(walk)                       # non-decreasing
+    assert walk[0] == anchor_minutes(kps[0].anchor, ctx)
+
+
+def test_walk_minutes_clamps_an_inverted_keypoint_instead_of_reordering():
+    # bedtime lands BEFORE sunset -- a real high-latitude / late-sunset case.
+    ctx = _ctx(
+        sunset=datetime(2026, 7, 29, 22, 0),
+        bedtime=datetime(2026, 7, 29, 21, 0),
+    )
+    kps = [
+        Keypoint(EventAnchor("wake", 0), 6500),
+        Keypoint(EventAnchor("sunset", 0), 3400),
+        Keypoint(EventAnchor("bedtime", 0), 2700),
+    ]
+    walk = walk_minutes(kps, ctx)
+    assert walk == sorted(walk)
+    assert walk[2] == walk[1]        # clamped into a zero-length segment, not swapped
+
+
+def test_curve_exposes_its_keypoints():
+    kps = [Keypoint(ClockAnchor(8, 0), 6500), Keypoint(ClockAnchor(22, 0), 2700)]
+    curve = Curve(kps)
+    assert curve.keypoints == tuple(kps)
+
+
+def test_curve_keypoints_cannot_mutate_the_curve():
+    kps = [Keypoint(ClockAnchor(8, 0), 6500), Keypoint(ClockAnchor(22, 0), 2700)]
+    curve = Curve(kps)
+    assert isinstance(curve.keypoints, tuple)
+    kps.append(Keypoint(ClockAnchor(23, 0), 1900))
+    assert len(curve.keypoints) == 2      # the Curve copied the list at construction
