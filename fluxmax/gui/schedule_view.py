@@ -8,11 +8,12 @@ module.
 
 Two guards recur through every interactive control here:
 
-- **Gesture guard**: while the manual-temperature scale is grabbed, or a
-  wake/bedtime entry is being edited, `_render()` skips pushing a fresh
-  value into that specific widget -- otherwise the periodic status poll
-  (driven by `AppState` subscribers) would fight the user's in-progress
-  interaction.
+- **Gesture guard**: while a wake/bedtime entry is being edited, `_render()`
+  skips pushing a fresh value into that specific widget -- otherwise the
+  periodic status poll (driven by `AppState` subscribers) would fight the
+  user's in-progress interaction. The manual-temperature scale carries the
+  equivalent guard (plus its own dirty tracking) inside `ManualTempScale`,
+  which `display_panel.py` shares.
 - **Re-entrancy guard**: `_render()` sets `self._rendering = True` for the
   duration of pushing store values into widgets, and every widget's own
   `changed`/`notify` handler checks that flag first and returns immediately
@@ -39,14 +40,13 @@ from fluxmax.daemon.config import Config  # noqa: E402
 from fluxmax.gui.client import DaemonClient  # noqa: E402
 from fluxmax.gui.curve_editor import CurveEditor  # noqa: E402
 from fluxmax.gui.editing import effective_keypoints, fork_to_custom, with_keypoints  # noqa: E402
+from fluxmax.gui.manual_temp import ManualTempScale  # noqa: E402
 from fluxmax.gui.state import AppState  # noqa: E402
 from fluxmax.schedule.curve import DayContext  # noqa: E402
 from fluxmax.schedule.modes import MODES  # noqa: E402
 from fluxmax.schedule.solar import solar_events  # noqa: E402
 
 log = logging.getLogger("fluxmax.gui.schedule_view")
-
-_SCALE_STEP = 50.0
 
 
 def _parse_hhmm(text: str) -> tuple[int, int] | None:
@@ -87,7 +87,6 @@ class ScheduleView(Gtk.Box):
         # widgets. Every outbound handler below checks this first.
         self._rendering = False
         # Gesture guard state.
-        self._scale_grabbed = False
         self._wake_editing = False
         self._bedtime_editing = False
         # Fork-to-custom banner: shown once per session.
@@ -150,18 +149,7 @@ class ScheduleView(Gtk.Box):
         scale_box.set_margin_start(12)
         scale_box.set_margin_end(12)
 
-        self._scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 1000, 10000, _SCALE_STEP)
-        self._scale.set_hexpand(True)
-        self._scale.set_digits(0)
-        self._scale.set_value_pos(Gtk.PositionType.RIGHT)
-        grab_ctrl = Gtk.GestureClick.new()
-        grab_ctrl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-        grab_ctrl.connect("pressed", self._on_scale_pressed)
-        grab_ctrl.connect("released", self._on_scale_released)
-        self._scale.add_controller(grab_ctrl)
-        scale_focus = Gtk.EventControllerFocus()
-        scale_focus.connect("leave", self._on_scale_focus_leave)
-        self._scale.add_controller(scale_focus)
+        self._scale = ManualTempScale(self._commit_manual_temp, lambda: self._rendering)
         scale_box.append(self._scale)
 
         self._chip_box = Gtk.FlowBox()
@@ -215,11 +203,9 @@ class ScheduleView(Gtk.Box):
                 effective_keypoints(cfg), ctx, cfg.min_kelvin, cfg.max_kelvin, now
             )
 
-            if not self._scale_grabbed:
-                adjustment = self._scale.get_adjustment()
-                adjustment.set_lower(cfg.min_kelvin)
-                adjustment.set_upper(cfg.max_kelvin)
-                self._scale.set_value(self._display_kelvin(status, cfg))
+            self._scale.render(
+                cfg.min_kelvin, cfg.max_kelvin, self._display_kelvin(status, cfg)
+            )
         finally:
             self._rendering = False
 
@@ -314,31 +300,10 @@ class ScheduleView(Gtk.Box):
 
     # -- manual temperature --------------------------------------------------
 
-    def _on_scale_pressed(
-        self, _gesture: Gtk.GestureClick, _n_press: int, _x: float, _y: float
-    ) -> None:
-        self._scale_grabbed = True
-
-    def _on_scale_released(
-        self, _gesture: Gtk.GestureClick, _n_press: int, _x: float, _y: float
-    ) -> None:
-        self._scale_grabbed = False
-        if not self._rendering:
-            self._commit_manual_temp(self._scale.get_value())
-
-    def _on_scale_focus_leave(self, _ctrl: Gtk.EventControllerFocus) -> None:
-        self._scale_grabbed = False
-        if not self._rendering:
-            self._commit_manual_temp(self._scale.get_value())
-
     def _on_preset_clicked(self, _button: Gtk.Button, kelvin: int) -> None:
-        if not self._rendering:
-            self._rendering = True
-            try:
-                self._scale.set_value(kelvin)
-            finally:
-                self._rendering = False
-        self._commit_manual_temp(float(kelvin))
+        if self._rendering:
+            return
+        self._scale.commit_explicit(float(kelvin))
 
     def _commit_manual_temp(self, kelvin: float) -> None:
         try:
