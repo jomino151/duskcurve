@@ -233,7 +233,15 @@ def test_status_shape():
     connectors = {d["connector"] for d in status["per_display"]}
     assert connectors == {"DP-2", "HDMI-1"}
     for d in status["per_display"]:
-        assert set(d.keys()) == {"connector", "current_k", "enabled", "override", "rule_action"}
+        expected_keys = {
+            "connector",
+            "current_k",
+            "enabled",
+            "override",
+            "rule_action",
+            "manual_k",
+        }
+        assert set(d.keys()) == expected_keys
         assert isinstance(d["current_k"], int)
         assert isinstance(d["enabled"], bool)
         assert isinstance(d["override"], str)
@@ -484,3 +492,86 @@ def test_rule_transition_only_affects_the_scoped_connector():
     per = {d["connector"]: d for d in orch.status()["per_display"]}
     assert per["DP-2"]["current_k"] == round(NEUTRAL_KELVIN)
     assert per["HDMI-1"]["current_k"] == warm
+
+
+# ---------------------------------------------------------------------------
+# Indefinite manual temps and manual_k in status (Task M6.1)
+# ---------------------------------------------------------------------------
+
+
+def test_manual_temp_with_zero_duration_never_expires():
+    cfg = replace(default_config(), transition_seconds=0.0)
+    clock = FakeClock(_dt(13, 0))
+    be, _t, orch = _new(cfg, clock)
+
+    orch.set_manual_temp("DP-2", 2700, 0)
+    clock.advance(48 * 3600)  # 48 hours in seconds
+    orch.tick()
+    status = orch.status()
+    entry = next(d for d in status["per_display"] if d["connector"] == "DP-2")
+    assert entry["manual_k"] == 2700
+    assert entry["current_k"] == 2700
+
+
+def test_manual_temp_with_negative_duration_never_expires():
+    cfg = replace(default_config(), transition_seconds=0.0)
+    clock = FakeClock(_dt(13, 0))
+    be, _t, orch = _new(cfg, clock)
+
+    orch.set_manual_temp("DP-2", 2700, -5)
+    clock.advance(3600)  # 1 hour in seconds
+    assert orch.status()["per_display"][0]["manual_k"] == 2700
+
+
+def test_manual_temp_with_positive_duration_still_expires():
+    cfg = replace(default_config(), transition_seconds=0.0)
+    clock = FakeClock(_dt(13, 0))
+    be, _t, orch = _new(cfg, clock)
+
+    orch.set_manual_temp("DP-2", 2700, 30)
+    clock.advance(29 * 60)  # 29 minutes in seconds
+    assert orch.status()["per_display"][0]["manual_k"] == 2700
+    clock.advance(2 * 60)  # 2 more minutes
+    assert orch.status()["per_display"][0]["manual_k"] is None
+
+
+def test_status_manual_k_is_null_when_no_manual_temp():
+    cfg = replace(default_config(), transition_seconds=0.0)
+    clock = FakeClock(_dt(13, 0))
+    be, _t, orch = _new(cfg, clock)
+
+    entry = orch.status()["per_display"][0]
+    assert "manual_k" in entry
+    assert entry["manual_k"] is None
+
+
+def test_status_manual_k_prefers_the_per_connector_entry_over_global():
+    cfg = replace(default_config(), transition_seconds=0.0)
+    clock = FakeClock(_dt(13, 0))
+    be, _t, orch = _new(cfg, clock)
+
+    orch.set_manual_temp("", 3000, 0)  # all displays
+    orch.set_manual_temp("DP-2", 2200, 0)  # this one specifically
+    by_connector = {d["connector"]: d["manual_k"] for d in orch.status()["per_display"]}
+    assert by_connector["DP-2"] == 2200
+    assert by_connector["HDMI-1"] == 3000
+
+
+def test_clear_manual_temp_clears_manual_k():
+    cfg = replace(default_config(), transition_seconds=0.0)
+    clock = FakeClock(_dt(13, 0))
+    be, _t, orch = _new(cfg, clock)
+
+    orch.set_manual_temp("DP-2", 2700, 0)
+    orch.clear_manual_temp("DP-2")
+    assert orch.status()["per_display"][0]["manual_k"] is None
+
+
+def test_status_keeps_every_pre_m6_key():
+    cfg = replace(default_config(), transition_seconds=0.0)
+    clock = FakeClock(_dt(13, 0))
+    be, _t, orch = _new(cfg, clock)
+
+    entry = orch.status()["per_display"][0]
+    for key in ("connector", "current_k", "enabled", "override", "rule_action"):
+        assert key in entry
