@@ -285,12 +285,21 @@ class CurveEditor(Gtk.DrawingArea):
         if not self._busy:
             return
         final = self._drag_live_kps
+        started_from = self._drag_start_kps
         self._busy = False
         self._drag_index = None
         self._drag_live_kps = ()
         self._kps = final
         self.queue_draw()
-        self._on_keypoints_changed(final)
+        # A gesture that ends with no net change (e.g. a stray click that GTK
+        # still routes through GestureDrag's begin/update/end, such as one leg
+        # of a double-click landing on a handle) must not notify: downstream,
+        # a notification forks a built-in mode to a custom curve and rewrites
+        # the config file, so a no-op drag must be indistinguishable from no
+        # gesture at all. KeypointConfig is a frozen dataclass, so tuple `!=`
+        # is a correct, sufficient comparison.
+        if final != started_from:
+            self._on_keypoints_changed(final)
 
     # -- click gestures --------------------------------------------------------
 
@@ -309,9 +318,11 @@ class CurveEditor(Gtk.DrawingArea):
         now = _minutes_to_datetime(minutes, self._now)
         kelvin = self._curve(self._kps).evaluate(now, self._ctx)
         new_kps = insert_keypoint(self._kps, index, minutes, kelvin)
+        changed = new_kps != self._kps
         self._kps = new_kps
         self.queue_draw()
-        self._on_keypoints_changed(new_kps)
+        if changed:
+            self._on_keypoints_changed(new_kps)
 
     def _on_secondary_pressed(
         self, gesture: Gtk.GestureClick, _n_press: int, x: float, y: float
@@ -351,6 +362,10 @@ class CurveEditor(Gtk.DrawingArea):
         popover = Gtk.Popover()
         popover.set_child(box)
         popover.set_parent(self)
+        # Gdk.Rectangle(x=..., y=..., width=..., height=...) kwarg construction
+        # is deprecated in this PyGObject version and SILENTLY zeroes every
+        # field instead of raising -- verified live. Must build then assign
+        # attributes, not pass kwargs to the constructor.
         rect = Gdk.Rectangle()
         rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
         popover.set_pointing_to(rect)
@@ -364,9 +379,11 @@ class CurveEditor(Gtk.DrawingArea):
                 new_kps = set_keypoint_anchor(self._kps, index, anchor_str)
             else:
                 new_kps = set_keypoint_anchor(self._kps, index, selected, 0)
+            changed = new_kps != self._kps
             self._kps = new_kps
             self.queue_draw()
-            self._on_keypoints_changed(new_kps)
+            if changed:
+                self._on_keypoints_changed(new_kps)
             popover.popdown()
 
         def kc_minutes_for(idx: int) -> float:
@@ -376,9 +393,11 @@ class CurveEditor(Gtk.DrawingArea):
 
         def on_delete_clicked(_button: Gtk.Button) -> None:
             new_kps = delete_keypoint(self._kps, index)
+            changed = new_kps != self._kps
             self._kps = new_kps
             self.queue_draw()
-            self._on_keypoints_changed(new_kps)
+            if changed:
+                self._on_keypoints_changed(new_kps)
             popover.popdown()
 
         anchor_row.connect("notify::selected", on_anchor_changed)
