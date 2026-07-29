@@ -1,8 +1,6 @@
 import subprocess
 import sys
 
-import pytest
-
 
 def test_importing_fluxmax_gui_does_not_pull_in_gi():
     code = (
@@ -13,7 +11,6 @@ def test_importing_fluxmax_gui_does_not_pull_in_gi():
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
-@pytest.mark.xfail(reason="state/editing/geometry land in Tasks 6.4-6.8", strict=False)
 def test_importing_gui_pure_modules_does_not_pull_in_gi():
     code = (
         "import sys; "
