@@ -9,6 +9,7 @@ import dataclasses
 from collections.abc import Sequence
 
 from fluxmax.daemon.config import Config, KeypointConfig
+from fluxmax.daemon.rules import Rule
 from fluxmax.schedule.curve import ClockAnchor, EventAnchor, Keypoint
 from fluxmax.schedule.modes import MODES
 
@@ -186,3 +187,41 @@ def delete_keypoint(
     out = list(kps)
     del out[index]
     return tuple(out)
+
+
+def _check_rule_index(rules: Sequence[Rule], index: int) -> None:
+    if not 0 <= index < len(rules):
+        raise IndexError(f"rule index {index} out of range (0..{len(rules) - 1})")
+
+
+def add_rule(rules: Sequence[Rule], rule: Rule) -> tuple[Rule, ...]:
+    return (*tuple(rules), rule)
+
+
+def replace_rule(rules: Sequence[Rule], index: int, rule: Rule) -> tuple[Rule, ...]:
+    _check_rule_index(rules, index)
+    out = list(rules)
+    out[index] = rule
+    return tuple(out)
+
+
+def delete_rule(rules: Sequence[Rule], index: int) -> tuple[Rule, ...]:
+    _check_rule_index(rules, index)
+    out = list(rules)
+    del out[index]
+    return tuple(out)
+
+
+def move_rule(rules: Sequence[Rule], index: int, delta: int) -> tuple[Rule, ...]:
+    """Move a rule up or down. Order is semantics: resolve_rules is first-match-wins."""
+    _check_rule_index(rules, index)
+    target = max(0, min(len(rules) - 1, index + delta))
+    if target == index:
+        return tuple(rules)
+    out = list(rules)
+    out.insert(target, out.pop(index))
+    return tuple(out)
+
+
+def with_rules(cfg: Config, rules: Sequence[Rule]) -> Config:
+    return dataclasses.replace(cfg, rules=tuple(rules))

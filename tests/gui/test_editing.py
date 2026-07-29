@@ -1,18 +1,24 @@
 import pytest
 
 from fluxmax.daemon.config import KeypointConfig, default_config, dump_config, load_config
+from fluxmax.daemon.rules import Rule, WindowState, resolve_rules
 from fluxmax.gui.editing import (
+    add_rule,
     config_to_keypoint,
     delete_keypoint,
+    delete_rule,
     effective_keypoints,
     fork_to_custom,
     insert_keypoint,
     keypoint_to_config,
     mode_keypoints,
+    move_rule,
+    replace_rule,
     set_keypoint_anchor,
     set_keypoint_kelvin,
     shift_keypoint_time,
     with_keypoints,
+    with_rules,
 )
 from fluxmax.schedule.curve import ClockAnchor, EventAnchor, Keypoint
 from fluxmax.schedule.modes import MODES
@@ -285,3 +291,90 @@ def test_edited_keypoints_survive_the_daemon_validator():
     edited = shift_keypoint_time(base_edited, 1, 15)
     cfg = with_keypoints(default_config(), edited)
     assert load_config(dump_config(cfg)).custom_keypoints == edited
+
+
+R0 = Rule(action="disable", match_fullscreen=True, scope="window_monitor")
+R1 = Rule(action="force_day", match_app_glob="org.gimp.*", scope="all")
+R2 = Rule(action="fixed", action_kelvin=3000, match_app_glob="*.mpv", scope="DP-2")
+RULES = (R0, R1, R2)
+
+
+def test_add_rule_appends():
+    new = Rule(action="disable", match_app_glob="foo")
+    assert add_rule(RULES, new) == (R0, R1, R2, new)
+
+
+def test_add_rule_to_an_empty_list():
+    assert add_rule((), R0) == (R0,)
+
+
+def test_replace_rule_swaps_in_place():
+    assert replace_rule(RULES, 1, R2) == (R0, R2, R2)
+
+
+def test_delete_rule_preserves_the_order_of_the_rest():
+    assert delete_rule(RULES, 1) == (R0, R2)
+
+
+def test_delete_the_only_rule_is_allowed():
+    assert delete_rule((R0,), 0) == ()
+
+
+def test_move_rule_up_and_down():
+    assert move_rule(RULES, 2, -1) == (R0, R2, R1)
+    assert move_rule(RULES, 0, 1) == (R1, R0, R2)
+
+
+def test_move_rule_clamps_at_the_ends_and_never_wraps():
+    assert move_rule(RULES, 0, -1) == RULES
+    assert move_rule(RULES, 2, 1) == RULES
+    assert move_rule(RULES, 0, -99) == RULES
+
+
+def test_move_rule_by_more_than_one():
+    assert move_rule(RULES, 0, 2) == (R1, R2, R0)
+
+
+def test_move_by_zero_is_a_no_op():
+    assert move_rule(RULES, 1, 0) == RULES
+
+
+def test_reordering_changes_which_rule_wins():
+    # The behavioural reason order is load-bearing, asserted against the real
+    # resolver rather than assumed.
+    window = WindowState(
+        app_id="org.gimp.GIMP", fullscreen=True, monitor_connector="DP-2"
+    )
+    rules = (R0, R1)  # fullscreen-disable first
+    assert resolve_rules(window, rules, ["DP-2"])["DP-2"].kind == "disable"
+    assert (
+        resolve_rules(window, move_rule(rules, 1, -1), ["DP-2"])["DP-2"].kind
+        == "fixed"
+    )
+
+
+def test_replace_rule_out_of_range_raises():
+    with pytest.raises(IndexError):
+        replace_rule(RULES, 99, R0)
+
+
+def test_delete_rule_out_of_range_raises():
+    with pytest.raises(IndexError):
+        delete_rule(RULES, 99)
+
+
+def test_move_rule_out_of_range_raises():
+    with pytest.raises(IndexError):
+        move_rule(RULES, 99, 1)
+
+
+def test_with_rules_replaces_the_config_rules_and_keeps_the_rest():
+    cfg = default_config()
+    got = with_rules(cfg, RULES)
+    assert got.rules == RULES
+    assert got.mode == cfg.mode and got.location == cfg.location
+
+
+def test_edited_rules_survive_the_daemon_validator():
+    cfg = with_rules(default_config(), RULES)
+    assert load_config(dump_config(cfg)).rules == RULES
