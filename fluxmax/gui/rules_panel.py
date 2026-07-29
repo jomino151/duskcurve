@@ -427,13 +427,17 @@ class RulesView(Gtk.Box):
         if cfg is None:
             dialog.show_apply_error("Not connected to the daemon.")
             return
-        try:
-            if index is None:
-                new_rules = add_rule(cfg.rules, rule)
-            else:
-                new_rules = replace_rule(cfg.rules, index, rule)
-        except IndexError:
+        if index is None:
             new_rules = add_rule(cfg.rules, rule)
+        else:
+            try:
+                new_rules = replace_rule(cfg.rules, index, rule)
+            except IndexError:
+                dialog.show_apply_error(
+                    "This rule no longer exists -- the configuration changed while "
+                    "the dialog was open. Close and reopen to edit the current list."
+                )
+                return
 
         try:
             ok = self._state.apply_config(with_rules(cfg, new_rules))
@@ -472,7 +476,7 @@ class RulesView(Gtk.Box):
         cfg = self._state.config
         if cfg is None or not 0 <= index < len(cfg.rules):
             return
-        previous_rules = cfg.rules
+        deleted_rule = cfg.rules[index]
         try:
             new_rules = delete_rule(cfg.rules, index)
         except IndexError:
@@ -484,20 +488,32 @@ class RulesView(Gtk.Box):
             self._state.set_error(str(exc))
             return
         if ok:
-            self._show_undo_toast(previous_rules)
+            self._show_undo_toast(deleted_rule, index)
 
-    def _show_undo_toast(self, previous_rules: tuple[Rule, ...]) -> None:
+    def _show_undo_toast(self, deleted_rule: Rule, index: int) -> None:
         toast = Adw.Toast(title="Rule deleted")
         toast.set_button_label("Undo")
-        toast.connect("button-clicked", self._on_undo_delete, previous_rules)
+        toast.connect("button-clicked", self._on_undo_delete, deleted_rule, index)
         self._toast_overlay.add_toast(toast)
 
-    def _on_undo_delete(self, _toast: Adw.Toast, previous_rules: tuple[Rule, ...]) -> None:
+    def _on_undo_delete(self, _toast: Adw.Toast, deleted_rule: Rule, index: int) -> None:
+        # Splice the deleted rule back into whatever the rule tuple is *now*,
+        # not the pre-delete snapshot -- something else (an external TOML
+        # edit the daemon picked up, another action in this view) may have
+        # changed it since the delete. Restoring the snapshot wholesale would
+        # silently discard that.
         cfg = self._state.config
         if cfg is None:
             return
+        current = cfg.rules
+        target = min(index, len(current))
+        if target < len(current) and current[target] == deleted_rule:
+            # Already present at the right spot -- undo already satisfied
+            # (e.g. a double click on the toast button), do not duplicate.
+            return
+        new_rules = (*current[:target], deleted_rule, *current[target:])
         try:
-            self._state.apply_config(with_rules(cfg, previous_rules))
+            self._state.apply_config(with_rules(cfg, new_rules))
         except Exception as exc:
             log.exception("apply_config raised while undoing a rule delete")
             self._state.set_error(str(exc))
