@@ -71,6 +71,11 @@ class FluxMaxWindow(Adw.ApplicationWindow):
         # back into _render(). See module docstring.
         self._rendering = False
         self._formatting_banner_shown = False
+        # Guards _on_close_request against a second close-request re-running
+        # teardown (unsubscribe + stop_polling + client.stop()). Several of
+        # those happen to be independently idempotent today, but the guard
+        # makes that an explicit contract instead of an accident.
+        self._closing = False
 
         self._install_apply_success_hook()
 
@@ -170,7 +175,7 @@ class FluxMaxWindow(Adw.ApplicationWindow):
         self.connect("unmap", self._on_unmap)
         self.connect("close-request", self._on_close_request)
 
-        self._state.subscribe(self._render)
+        self._unsubscribe = self._state.subscribe(self._render)
         self._render()
 
     # -- construction helpers --------------------------------------------
@@ -252,11 +257,25 @@ class FluxMaxWindow(Adw.ApplicationWindow):
     def _on_pause_toggled(self, button: Gtk.ToggleButton) -> None:
         if self._rendering:
             return
+        attempted = button.get_active()
         try:
-            self._client.set_paused(button.get_active())
+            self._client.set_paused(attempted)
         except Exception as exc:
             log.exception("set_paused failed")
             self._state.set_error(str(exc))
+            # The daemon never applied `attempted`, so the toggle must not
+            # keep showing it -- otherwise the app's most prominent state
+            # indicator lies until the next status poll corrects it (up to
+            # tick_interval_seconds later). Revert to the store's last known
+            # value under the re-entrancy guard so this doesn't loop back
+            # into _on_pause_toggled itself.
+            status = self._state.status
+            reverted = status.paused if status is not None else not attempted
+            self._rendering = True
+            try:
+                button.set_active(reverted)
+            finally:
+                self._rendering = False
 
     def _on_retry_clicked(self, _button: Gtk.Button) -> None:
         self._client.refresh()
@@ -291,6 +310,10 @@ class FluxMaxWindow(Adw.ApplicationWindow):
         self._client.stop_polling()
 
     def _on_close_request(self, _widget: Gtk.Widget) -> bool:
+        if self._closing:
+            return False
+        self._closing = True
+        self._unsubscribe()
         self._client.stop()
         # False = propagate: let the default close handler run and destroy
         # the window instead of vetoing the close.
