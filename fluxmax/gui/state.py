@@ -6,6 +6,10 @@ directly -- they build a new Config and call apply_config().
 
 Subscription uses plain callables rather than GObject signals so the store
 stays gi-free and directly testable.
+
+last_error ownership: set by any failed parse (set_config_text, set_status_text)
+or rejected apply_config; cleared only by a successful apply_config or an
+explicit clear_error(). This ensures errors persist until shown to the user.
 """
 
 import logging
@@ -53,7 +57,6 @@ class AppState:
     def set_config_text(self, toml_text: str) -> None:
         try:
             self.config = load_config(toml_text)
-            self.last_error = None
         except Exception as exc:
             log.exception("could not parse config from the daemon")
             self.last_error = str(exc)
@@ -62,7 +65,6 @@ class AppState:
     def set_status_text(self, json_text: str) -> None:
         try:
             self.status = parse_status(json_text)
-            self.last_error = None
         except Exception as exc:
             log.exception("could not parse status from the daemon")
             self.last_error = str(exc)
@@ -70,6 +72,12 @@ class AppState:
 
     def set_connected(self, connected: bool) -> None:
         self.connected = connected
+        self._notify()
+
+    def clear_error(self) -> None:
+        """Acknowledge that an error has been shown; clear it so the next one
+        is visible."""
+        self.last_error = None
         self._notify()
 
     # -- outbound -------------------------------------------------------

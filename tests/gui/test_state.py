@@ -164,3 +164,41 @@ def test_malformed_inbound_config_is_ignored_and_records_an_error():
     st.set_config_text("this is not toml = = =")
     assert st.config is not None
     assert st.last_error is not None
+
+
+def test_successful_set_status_text_does_not_clear_apply_error():
+    def apply_fn(_toml):
+        raise ConfigError("apply failed")
+
+    st = AppState(apply_fn)
+    st.set_config_text(dump_config(default_config()))
+    st.apply_config(default_config())
+    assert st.last_error is not None
+    # A subsequent status update must NOT clear the error
+    st.set_status_text(GOOD_STATUS)
+    assert st.last_error is not None
+
+
+def test_successful_set_config_text_does_not_clear_apply_error():
+    def apply_fn(_toml):
+        raise ConfigError("apply failed")
+
+    st = AppState(apply_fn)
+    original = default_config()
+    st.set_config_text(dump_config(original))
+    st.apply_config(original)
+    assert st.last_error is not None
+    # A subsequent config update must NOT clear the error
+    st.set_config_text(dump_config(original))
+    assert st.last_error is not None
+
+
+def test_clear_error_clears_and_notifies():
+    st = _state()
+    st.set_config_text("invalid toml = = =")
+    assert st.last_error is not None
+    calls = []
+    st.subscribe(lambda: calls.append(1))
+    st.clear_error()
+    assert st.last_error is None
+    assert len(calls) == 1
