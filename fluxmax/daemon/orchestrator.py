@@ -26,6 +26,10 @@ from fluxmax.schedule import (
 
 NEUTRAL_KELVIN = 6500.0
 
+# Kelvin gap below which a display counts as having reached its target, ending
+# a rule-paced transition. Well under a perceptible step at any temperature.
+_CONVERGED_KELVIN = 1.0
+
 _EVENT_ANCHORS = frozenset({"sunrise", "sunset", "wake", "bedtime"})
 
 
@@ -55,6 +59,17 @@ class Orchestrator:
         # connector -> (kelvin, expiry); connector "" applies to all connectors.
         self._manual: dict[str, tuple[float, datetime]] = {}
         self._window: WindowState | None = None
+        # Rule-driven transitions ease at their own rate (config
+        # rule_transition_seconds, 0 = instant) rather than at the schedule's
+        # transition_seconds. A rule change is a reaction to a deliberate user
+        # action, so it should land immediately; the circadian drift the slow
+        # easing exists for is a different kind of change.
+        self._prev_actions: dict[str, RuleAction] = {}
+        # connector -> still converging on a rule-driven target. Set when the
+        # resolved action changes, cleared once the display reaches the target,
+        # so a multi-tick rule transition keeps its own rate the whole way
+        # instead of reverting to the schedule's rate after the first tick.
+        self._rule_transition: dict[str, bool] = {}
 
     def set_config(self, config: Config) -> None:
         self._config = config
@@ -81,13 +96,15 @@ class Orchestrator:
         for connector in list(self._current_k):
             if connector not in connectors:
                 del self._current_k[connector]
+        for state in (self._prev_actions, self._rule_transition):
+            for connector in list(state):
+                if connector not in connectors:
+                    del state[connector]
 
     def tick(self) -> None:
         now = self._clock()
         dt = 0.0 if self._last_tick_dt is None else (now - self._last_tick_dt).total_seconds()
         ctx = self._day_context(now)
-        ts = self._config.transition_seconds
-        factor = 1.0 if ts <= 0 else min(1.0, dt / ts)
 
         displays = self._backend.list_displays()
         connectors = [d.connector for d in displays]
@@ -99,6 +116,20 @@ class Orchestrator:
             connector = display.connector
             target_k = self._raw_target(connector, now, ctx, actions)
 
+            # A change in the resolved action -- in either direction, rule
+            # engaging or releasing -- starts a rule-paced transition.
+            action = actions.get(connector, NO_ACTION)
+            if action != self._prev_actions.get(connector, NO_ACTION):
+                self._rule_transition[connector] = True
+            self._prev_actions[connector] = action
+
+            ts = (
+                self._config.rule_transition_seconds
+                if self._rule_transition.get(connector, False)
+                else self._config.transition_seconds
+            )
+            factor = 1.0 if ts <= 0 else min(1.0, dt / ts)
+
             if connector not in self._current_k:
                 current_k = target_k
             else:
@@ -106,6 +137,9 @@ class Orchestrator:
                 target_m = kelvin_to_mired(target_k)
                 current_m += (target_m - current_m) * factor
                 current_k = mired_to_kelvin(current_m)
+
+            if abs(current_k - target_k) <= _CONVERGED_KELVIN:
+                self._rule_transition[connector] = False
 
             self._current_k[connector] = current_k
             red, green, blue = build_ramp(display.ramp_size, current_k)

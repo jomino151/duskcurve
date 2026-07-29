@@ -61,6 +61,10 @@ class Config:
     min_kelvin: float = 1200.0
     max_kelvin: float = 6500.0
     transition_seconds: float = 20.0
+    # Easing time for a change driven by a window rule, which is a reaction to
+    # a deliberate user action (going fullscreen) rather than the gradual
+    # circadian drift transition_seconds is tuned for. Defaults to 0 = instant.
+    rule_transition_seconds: float = 0.0
     tick_interval_seconds: float = 2.0
     displays: dict[str, DisplayConfig] = field(default_factory=dict)  # keyed by connector
     rules: tuple[Rule, ...] = ()
@@ -198,14 +202,22 @@ def _validate_range(raw: dict) -> tuple[float, float]:
     return min_kelvin, max_kelvin
 
 
-def _validate_transition(raw: dict) -> float:
+def _validate_transition(raw: dict) -> tuple[float, float]:
     try:
         seconds = float(raw.get("seconds", 20.0))
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"transition.seconds must be numeric: {exc}") from exc
     if seconds < 0:
         raise ConfigError(f"transition.seconds must be >= 0, got {seconds}")
-    return seconds
+
+    try:
+        rule_seconds = float(raw.get("rule_seconds", 0.0))
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"transition.rule_seconds must be numeric: {exc}") from exc
+    if rule_seconds < 0:
+        raise ConfigError(f"transition.rule_seconds must be >= 0, got {rule_seconds}")
+
+    return seconds, rule_seconds
 
 
 def _validate_tick(raw: dict) -> float:
@@ -315,7 +327,7 @@ def load_config(text: str) -> Config:
     location = _validate_location(doc["location"])
     wake, bedtime, mode, keypoints = _validate_schedule(doc["schedule"])
     min_kelvin, max_kelvin = _validate_range(doc.get("range", {}))
-    transition_seconds = _validate_transition(doc.get("transition", {}))
+    transition_seconds, rule_transition_seconds = _validate_transition(doc.get("transition", {}))
     tick_interval_seconds = _validate_tick(doc.get("tick", {}))
     displays = _validate_displays(doc.get("displays", {}))
     rules = _validate_rules(doc.get("rules", []))
@@ -329,6 +341,7 @@ def load_config(text: str) -> Config:
         min_kelvin=min_kelvin,
         max_kelvin=max_kelvin,
         transition_seconds=transition_seconds,
+        rule_transition_seconds=rule_transition_seconds,
         tick_interval_seconds=tick_interval_seconds,
         displays=displays,
         rules=rules,
@@ -406,6 +419,7 @@ def dump_config(cfg: Config) -> str:
 
     lines.append("[transition]")
     lines.append(f"seconds = {_fmt_float(cfg.transition_seconds)}")
+    lines.append(f"rule_seconds = {_fmt_float(cfg.rule_transition_seconds)}")
     lines.append("")
 
     lines.append("[tick]")
