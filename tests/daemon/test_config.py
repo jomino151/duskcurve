@@ -208,12 +208,13 @@ def test_config_error_is_value_error():
     assert issubclass(ConfigError, ValueError)
 
 
-# --- Review fix: IMPORTANT 1 -- stray keypoints alongside a non-custom mode
-# must be rejected, otherwise dump_config (which only emits keypoints when
-# mode == "custom") would silently drop them and break round-trip equality.
+# --- M6 final review, C1: a hand-authored custom curve must survive while a
+# built-in mode is selected. Keypoints alongside a non-custom mode are
+# therefore *accepted* (they are the parked fork) and dump_config emits them
+# regardless of mode. Only "custom with no keypoints" stays invalid.
 
 
-def test_non_custom_mode_with_populated_keypoints_rejected():
+def test_non_custom_mode_with_populated_keypoints_loads():
     text = (
         _base_toml(mode="reduce_eyestrain")
         + """
@@ -222,8 +223,72 @@ anchor = "wake"
 kelvin = 6500
 """
     )
+    cfg = load_config(text)
+    assert cfg.mode == "reduce_eyestrain"
+    assert cfg.custom_keypoints == (
+        KeypointConfig(anchor="wake", kelvin=6500.0, offset_min=0, easing="smoothstep"),
+    )
+
+
+def test_parked_keypoints_survive_round_trip_with_non_custom_mode():
+    cfg = Config(
+        location=Location(52.52, 13.40, "Europe/Berlin"),
+        wake="10:00",
+        bedtime="23:00",
+        mode="classic",
+        custom_keypoints=(
+            KeypointConfig(anchor="wake", kelvin=6500, offset_min=0, easing="smoothstep"),
+            KeypointConfig(anchor="22:30", kelvin=2700, offset_min=-15, easing="linear"),
+        ),
+    )
+    round_tripped = load_config(dump_config(cfg))
+    assert round_tripped == cfg
+    assert round_tripped.mode == "classic"
+    assert len(round_tripped.custom_keypoints) == 2
+
+
+def test_custom_mode_without_keypoints_still_rejected():
+    text = _base_toml(mode="custom")
     with pytest.raises(ConfigError):
         load_config(text)
+
+
+def test_gui_fork_edit_switch_away_and_back_preserves_the_edited_curve():
+    """The exact GUI journey from the M6 review: fork a built-in to custom,
+    edit a keypoint, switch the mode dropdown to a built-in, let the config go
+    through the daemon (dump -> load), then switch back to custom."""
+    forked = Config(
+        location=Location(52.52, 13.40, "Europe/Berlin"),
+        wake="10:00",
+        bedtime="23:00",
+        mode="custom",
+        custom_keypoints=(
+            KeypointConfig(anchor="wake", kelvin=6500, offset_min=0, easing="smoothstep"),
+            KeypointConfig(anchor="sunset", kelvin=4000, offset_min=0, easing="smoothstep"),
+            KeypointConfig(anchor="bedtime", kelvin=2700, offset_min=0, easing="smoothstep"),
+        ),
+    )
+    edited = replace(
+        forked,
+        custom_keypoints=(
+            forked.custom_keypoints[0],
+            replace(forked.custom_keypoints[1], kelvin=3300.0),
+            forked.custom_keypoints[2],
+        ),
+    )
+
+    # Switch the dropdown to a built-in; the GUI keeps custom_keypoints.
+    switched_away = replace(edited, mode="classic")
+    persisted = load_config(dump_config(switched_away))
+    assert persisted.mode == "classic"
+    assert persisted.custom_keypoints == edited.custom_keypoints
+
+    # Switch back to custom: the fork is still there, edit included.
+    switched_back = replace(persisted, mode="custom")
+    reloaded = load_config(dump_config(switched_back))
+    assert reloaded.mode == "custom"
+    assert reloaded.custom_keypoints == edited.custom_keypoints
+    assert reloaded.custom_keypoints[1].kelvin == 3300.0
 
 
 # --- Review fix: IMPORTANT 2 -- non-numeric values in numeric-coerced fields

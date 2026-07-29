@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 
 from fluxmax.daemon.config import KeypointConfig, default_config, dump_config, load_config
@@ -92,6 +94,40 @@ def test_fork_to_custom_copies_the_builtin_curve():
 def test_fork_to_custom_is_idempotent():
     once = fork_to_custom(default_config())
     assert fork_to_custom(once) == once
+
+
+def test_fork_to_custom_restores_a_parked_fork_instead_of_overwriting_it():
+    # M6 final review, C1: after switching the mode dropdown away from custom,
+    # custom_keypoints stay in the config (parked). Selecting Custom again must
+    # bring the user's own curve back, not the built-in mode's.
+    parked = (KeypointConfig("08:00", 6500.0), KeypointConfig("21:15", 2100.0))
+    cfg = dataclasses.replace(default_config(), mode="classic", custom_keypoints=parked)
+    forked = fork_to_custom(cfg)
+    assert forked.mode == "custom"
+    assert forked.custom_keypoints == parked
+    assert forked.custom_keypoints != mode_keypoints("classic")
+
+
+def test_fork_to_custom_round_trips_through_the_real_config_serializer():
+    # The full GUI journey, through the daemon's own validator: fork, edit,
+    # switch to a built-in, persist, switch back.
+    forked = fork_to_custom(default_config())
+    edited = with_keypoints(
+        forked,
+        set_keypoint_kelvin(
+            forked.custom_keypoints,
+            1,
+            3300.0,
+            min_kelvin=forked.min_kelvin,
+            max_kelvin=forked.max_kelvin,
+        ),
+    )
+    parked = dataclasses.replace(edited, mode="classic")
+    persisted = load_config(dump_config(parked))
+    assert persisted.custom_keypoints == edited.custom_keypoints
+    restored = fork_to_custom(persisted)
+    assert restored.mode == "custom"
+    assert restored.custom_keypoints == edited.custom_keypoints
 
 
 def test_fork_to_custom_preserves_every_other_setting():

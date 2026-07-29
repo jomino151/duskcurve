@@ -92,7 +92,16 @@ def with_keypoints(cfg: Config, kps: Sequence[KeypointConfig]) -> Config:
 
 
 def fork_to_custom(cfg: Config) -> Config:
-    """Copy whatever curve is in force into custom_keypoints and switch to custom mode."""
+    """Switch to custom mode, restoring a previously parked fork if there is one.
+
+    A non-empty `custom_keypoints` while a built-in mode is selected is the
+    user's own curve, parked but not discarded (design spec 6.4). Selecting
+    Custom again must bring *that* back, not overwrite it with the built-in
+    mode's curve. Only when there is nothing parked do we copy the curve
+    currently in force.
+    """
+    if cfg.custom_keypoints:
+        return with_keypoints(cfg, cfg.custom_keypoints)
     return with_keypoints(cfg, effective_keypoints(cfg))
 
 
