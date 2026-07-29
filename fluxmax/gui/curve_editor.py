@@ -122,6 +122,21 @@ class CurveEditor(Gtk.DrawingArea):
     def _curve(self, kps: Sequence[KeypointConfig]) -> Curve:
         return Curve([config_to_keypoint(k) for k in kps])
 
+    def _apply(self, new_kps: tuple[KeypointConfig, ...]) -> None:
+        """Commit `new_kps` as current state and notify iff it actually changed.
+
+        A notification forks a built-in mode to a custom curve and rewrites
+        the config file downstream, so a no-op edit (e.g. one leg of a
+        double-click landing on a handle) must be indistinguishable from no
+        edit at all. KeypointConfig is a frozen dataclass, so tuple `!=` is a
+        correct, sufficient comparison.
+        """
+        changed = new_kps != self._kps
+        self._kps = new_kps
+        self.queue_draw()
+        if changed:
+            self._on_keypoints_changed(new_kps)
+
     # -- drawing --------------------------------------------------------
 
     def _on_draw(self, _area: Gtk.DrawingArea, cr, width: int, height: int) -> None:
@@ -286,20 +301,24 @@ class CurveEditor(Gtk.DrawingArea):
             return
         final = self._drag_live_kps
         started_from = self._drag_start_kps
+        external_now = self._kps  # may have been overwritten by a mid-drag set_curve
         self._busy = False
         self._drag_index = None
         self._drag_live_kps = ()
-        self._kps = final
-        self.queue_draw()
-        # A gesture that ends with no net change (e.g. a stray click that GTK
-        # still routes through GestureDrag's begin/update/end, such as one leg
-        # of a double-click landing on a handle) must not notify: downstream,
-        # a notification forks a built-in mode to a custom curve and rewrites
-        # the config file, so a no-op drag must be indistinguishable from no
-        # gesture at all. KeypointConfig is a frozen dataclass, so tuple `!=`
-        # is a correct, sufficient comparison.
-        if final != started_from:
-            self._on_keypoints_changed(final)
+
+        if external_now != started_from:
+            # set_curve delivered different keypoints while the drag was in
+            # progress -- a status refresh, an external TOML edit picked up
+            # by the daemon, or a mode change. self._kps already holds that
+            # authoritative update; committing `final` (computed from the
+            # now-stale `started_from` base) would silently overwrite a real
+            # config change with stale data. Abandon this drag's edit: keep
+            # the externally-delivered keypoints, don't notify, just redraw
+            # so the user sees the authoritative state.
+            self.queue_draw()
+            return
+
+        self._apply(final)
 
     # -- click gestures --------------------------------------------------------
 
@@ -318,11 +337,7 @@ class CurveEditor(Gtk.DrawingArea):
         now = _minutes_to_datetime(minutes, self._now)
         kelvin = self._curve(self._kps).evaluate(now, self._ctx)
         new_kps = insert_keypoint(self._kps, index, minutes, kelvin)
-        changed = new_kps != self._kps
-        self._kps = new_kps
-        self.queue_draw()
-        if changed:
-            self._on_keypoints_changed(new_kps)
+        self._apply(new_kps)
 
     def _on_secondary_pressed(
         self, gesture: Gtk.GestureClick, _n_press: int, x: float, y: float
@@ -339,6 +354,14 @@ class CurveEditor(Gtk.DrawingArea):
     # -- keypoint context popover --------------------------------------------------------
 
     def _show_keypoint_popover(self, index: int, x: float, y: float) -> None:
+        # The popover stays open across GTK's event loop, so `index` (and the
+        # anchor/delete-sensitivity choices below) are a snapshot: if
+        # set_curve delivers different keypoints while the popover is open
+        # (a status refresh, an external TOML edit, a mode change), `index`
+        # may no longer refer to the same keypoint, or may be out of range.
+        # Both handlers below re-check self._kps against this snapshot before
+        # acting, and abandon rather than risk editing the wrong keypoint.
+        kps_at_open = self._kps
         kc = self._kps[index]
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -371,6 +394,9 @@ class CurveEditor(Gtk.DrawingArea):
         popover.set_pointing_to(rect)
 
         def on_anchor_changed(dropdown: Gtk.DropDown, _pspec: GObject.ParamSpec) -> None:
+            if self._kps != kps_at_open:
+                popover.popdown()  # stale snapshot; see comment above
+                return
             selected = anchor_options[dropdown.get_selected()]
             if selected == current_anchor:
                 return
@@ -379,11 +405,7 @@ class CurveEditor(Gtk.DrawingArea):
                 new_kps = set_keypoint_anchor(self._kps, index, anchor_str)
             else:
                 new_kps = set_keypoint_anchor(self._kps, index, selected, 0)
-            changed = new_kps != self._kps
-            self._kps = new_kps
-            self.queue_draw()
-            if changed:
-                self._on_keypoints_changed(new_kps)
+            self._apply(new_kps)
             popover.popdown()
 
         def kc_minutes_for(idx: int) -> float:
@@ -392,12 +414,11 @@ class CurveEditor(Gtk.DrawingArea):
             return walk[idx] % 1440.0
 
         def on_delete_clicked(_button: Gtk.Button) -> None:
+            if self._kps != kps_at_open:
+                popover.popdown()  # stale snapshot; see comment above
+                return
             new_kps = delete_keypoint(self._kps, index)
-            changed = new_kps != self._kps
-            self._kps = new_kps
-            self.queue_draw()
-            if changed:
-                self._on_keypoints_changed(new_kps)
+            self._apply(new_kps)
             popover.popdown()
 
         anchor_row.connect("notify::selected", on_anchor_changed)
