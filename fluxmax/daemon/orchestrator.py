@@ -151,6 +151,11 @@ class Orchestrator:
         self._last_tick_dt = now
 
     def status(self) -> dict:
+        # Side effect worth knowing about: the per-display manual_k lookup goes
+        # through _manual_kelvin, which evicts expired entries from
+        # self._manual. So this read path mutates state. It is benign -- the
+        # same entry would be evicted by the next tick regardless -- but it
+        # means status() is not a pure observer.
         displays = self._backend.list_displays()
         actions = resolve_rules(
             self._window,
