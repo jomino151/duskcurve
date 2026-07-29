@@ -193,8 +193,20 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self._tick_row.add_controller(tick_focus)
         timing_group.add(self._tick_row)
 
-        self._state.subscribe(self._render)
+        # The window builds a fresh dialog on every Preferences activation, so
+        # a dropped unsubscribe handle would leak one permanent subscriber per
+        # open -- each of them re-rendering a destroyed dialog on every status
+        # poll forever, silently, because AppState._notify swallows subscriber
+        # exceptions. Adw.Dialog::closed (verified against libadwaita 1.5.0)
+        # is the teardown hook.
+        self._unsubscribe = self._state.subscribe(self._render)
+        self.connect("closed", self._on_closed)
         self._render()
+
+    def _on_closed(self, _dialog: Adw.Dialog) -> None:
+        unsubscribe, self._unsubscribe = self._unsubscribe, None
+        if unsubscribe is not None:
+            unsubscribe()
 
     # -- rendering ------------------------------------------------------
 
