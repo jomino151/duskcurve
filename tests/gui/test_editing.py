@@ -92,3 +92,59 @@ def test_fork_to_custom_preserves_every_other_setting():
     assert forked.min_kelvin == cfg.min_kelvin
     assert forked.rules == cfg.rules
     assert forked.displays == cfg.displays
+
+
+# Finding 1: validation of clock anchor strings
+@pytest.mark.parametrize(
+    "bad_anchor",
+    [
+        "25:99",      # hour > 23, minute > 59
+        "12:60",      # minute > 59
+        "lunchtime",  # not an event name, not HH:MM
+        "",           # empty string
+        "8",          # no colon
+        "8:0:0",      # too many colons
+        " 8:00",      # leading whitespace
+        "+8:00",      # leading sign
+    ],
+)
+def test_config_to_keypoint_rejects_malformed_clock_anchors(bad_anchor):
+    kc = KeypointConfig(anchor=bad_anchor, kelvin=6500)
+    with pytest.raises(ValueError) as exc_info:
+        config_to_keypoint(kc)
+    assert bad_anchor in str(exc_info.value)
+
+
+def test_config_to_keypoint_accepts_valid_clock_boundaries():
+    # Ensure valid boundaries are accepted
+    kc_min = KeypointConfig(anchor="00:00", kelvin=6500)
+    assert config_to_keypoint(kc_min).anchor == ClockAnchor(0, 0)
+
+    kc_max = KeypointConfig(anchor="23:59", kelvin=6500)
+    assert config_to_keypoint(kc_max).anchor == ClockAnchor(23, 59)
+
+
+# Finding 2: round-trip with mixed anchor types (clock + event)
+def test_mixed_anchor_types_round_trip_through_serialization():
+    # This test exercises clock anchors in the serialization round-trip,
+    # which the built-in modes (all event-anchored) do not cover.
+    kps_config = (
+        KeypointConfig(anchor="07:05", kelvin=6500, offset_min=0, easing="smoothstep"),
+        KeypointConfig(
+            anchor="sunset", kelvin=3400.0, offset_min=-60, easing="smoothstep"
+        ),
+        KeypointConfig(
+            anchor="wake", kelvin=5500.0, offset_min=30, easing="smoothstep"
+        ),
+    )
+    cfg = with_keypoints(default_config(), kps_config)
+    # Full round-trip through daemon serialization.
+    reloaded = load_config(dump_config(cfg))
+    assert reloaded.mode == "custom"
+    assert reloaded.custom_keypoints == kps_config
+
+    # Also verify that the reverse conversion recovers the original keypoints.
+    for original_kc in kps_config:
+        kp = config_to_keypoint(original_kc)
+        recovered_kc = keypoint_to_config(kp)
+        assert recovered_kc == original_kc

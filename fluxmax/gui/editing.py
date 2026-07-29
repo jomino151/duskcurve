@@ -35,8 +35,42 @@ def config_to_keypoint(kc: KeypointConfig) -> Keypoint:
     if kc.anchor in EVENT_ANCHORS:
         anchor = EventAnchor(kc.anchor, kc.offset_min)
     else:
-        hour, _, minute = kc.anchor.partition(":")
-        anchor = ClockAnchor(int(hour), int(minute))
+        # Validate clock anchor format: HH:MM with hour 0-23, minute 0-59.
+        if ":" not in kc.anchor:
+            raise ValueError(
+                f"Clock anchor must be 'HH:MM', got: {kc.anchor!r}"
+            )
+        parts = kc.anchor.split(":")
+        if len(parts) != 2:
+            raise ValueError(
+                f"Clock anchor must be 'HH:MM', got: {kc.anchor!r}"
+            )
+        hour_str, minute_str = parts
+        # Reject stray whitespace or signs.
+        if hour_str != hour_str.strip() or minute_str != minute_str.strip():
+            raise ValueError(
+                f"Clock anchor must be 'HH:MM' with no whitespace, got: {kc.anchor!r}"
+            )
+        if hour_str.startswith(("+", "-")) or minute_str.startswith(("+", "-")):
+            raise ValueError(
+                f"Clock anchor must be 'HH:MM' with no signs, got: {kc.anchor!r}"
+            )
+        try:
+            hour = int(hour_str)
+            minute = int(minute_str)
+        except ValueError as e:
+            raise ValueError(
+                f"Clock anchor must be 'HH:MM' with numeric values, got: {kc.anchor!r}"
+            ) from e
+        if not (0 <= hour <= 23):
+            raise ValueError(
+                f"Clock anchor hour must be 0-23, got: {hour} in {kc.anchor!r}"
+            )
+        if not (0 <= minute <= 59):
+            raise ValueError(
+                f"Clock anchor minute must be 0-59, got: {minute} in {kc.anchor!r}"
+            )
+        anchor = ClockAnchor(hour, minute)
     return Keypoint(anchor, float(kc.kelvin), easing=kc.easing)
 
 
