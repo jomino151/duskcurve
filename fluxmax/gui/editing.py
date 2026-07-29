@@ -93,3 +93,96 @@ def with_keypoints(cfg: Config, kps: Sequence[KeypointConfig]) -> Config:
 def fork_to_custom(cfg: Config) -> Config:
     """Copy whatever curve is in force into custom_keypoints and switch to custom mode."""
     return with_keypoints(cfg, effective_keypoints(cfg))
+
+
+def _check_index(kps: Sequence[KeypointConfig], index: int) -> None:
+    if not 0 <= index < len(kps):
+        raise IndexError(f"keypoint index {index} out of range (0..{len(kps) - 1})")
+
+
+def _minutes_to_hhmm(minutes: float) -> str:
+    total = round(minutes) % 1440
+    return f"{total // 60:02d}:{total % 60:02d}"
+
+
+def _hhmm_to_minutes(hhmm: str) -> int:
+    hour, _, minute = hhmm.partition(":")
+    return int(hour) * 60 + int(minute)
+
+
+def set_keypoint_kelvin(
+    kps: Sequence[KeypointConfig],
+    index: int,
+    kelvin: float,
+    *,
+    min_kelvin: float,
+    max_kelvin: float,
+) -> tuple[KeypointConfig, ...]:
+    _check_index(kps, index)
+    clamped = max(min_kelvin, min(max_kelvin, float(kelvin)))
+    out = list(kps)
+    out[index] = dataclasses.replace(out[index], kelvin=clamped)
+    return tuple(out)
+
+
+def shift_keypoint_time(
+    kps: Sequence[KeypointConfig], index: int, delta_min: int
+) -> tuple[KeypointConfig, ...]:
+    """Move a keypoint in time.
+
+    An event-anchored keypoint keeps its anchor and moves its offset, so it
+    goes on tracking sunset (etc.) seasonally. Only an explicit anchor change
+    converts between anchor kinds -- never a drag.
+    """
+    _check_index(kps, index)
+    out = list(kps)
+    kc = out[index]
+    if kc.anchor in EVENT_ANCHORS:
+        out[index] = dataclasses.replace(
+            kc, offset_min=kc.offset_min + int(delta_min)
+        )
+    else:
+        out[index] = dataclasses.replace(
+            kc, anchor=_minutes_to_hhmm(_hhmm_to_minutes(kc.anchor) + delta_min)
+        )
+    return tuple(out)
+
+
+def set_keypoint_anchor(
+    kps: Sequence[KeypointConfig], index: int, anchor: str, offset_min: int = 0
+) -> tuple[KeypointConfig, ...]:
+    _check_index(kps, index)
+    out = list(kps)
+    out[index] = dataclasses.replace(
+        out[index],
+        anchor=anchor,
+        offset_min=int(offset_min) if anchor in EVENT_ANCHORS else 0,
+    )
+    return tuple(out)
+
+
+def insert_keypoint(
+    kps: Sequence[KeypointConfig], index: int, minutes: float, kelvin: float
+) -> tuple[KeypointConfig, ...]:
+    """Insert a clock-anchored keypoint AT index.
+
+    The index comes from which drawn segment the user clicked (see
+    fluxmax.gui.geometry.insert_index) -- never from sorting, which would
+    interleave keypoints from different phases of the day.
+    """
+    out = list(kps)
+    out.insert(
+        index, KeypointConfig(_minutes_to_hhmm(minutes), float(kelvin), 0, "smoothstep")
+    )
+    return tuple(out)
+
+
+def delete_keypoint(
+    kps: Sequence[KeypointConfig], index: int
+) -> tuple[KeypointConfig, ...]:
+    _check_index(kps, index)
+    if len(kps) <= 1:
+        raise ValueError("a curve needs at least one keypoint")
+    out = list(kps)
+    del out[index]
+    return tuple(out)
