@@ -87,3 +87,31 @@ def test_malformed_payloads_raise_value_error(bad):
 def test_current_k_is_coerced_to_int():
     st = parse_status('{"per_display":[{"connector":"DP-2","current_k":3400.7}]}')
     assert st.displays[0].current_k == 3401
+
+
+def test_non_numeric_current_k_falls_back_to_neutral():
+    st = parse_status('{"per_display":[{"connector":"DP-2","current_k":[1,2]}]}')
+    assert st.displays[0].current_k == 6500
+    st = parse_status('{"per_display":[{"connector":"DP-2","current_k":{"bad":"value"}}]}')
+    assert st.displays[0].current_k == 6500
+
+
+def test_non_numeric_manual_k_falls_back_to_none():
+    st = parse_status('{"per_display":[{"connector":"DP-2","manual_k":[1,2]}]}')
+    assert st.displays[0].manual_k is None
+    st = parse_status('{"per_display":[{"connector":"DP-2","manual_k":{"bad":"value"}}]}')
+    assert st.displays[0].manual_k is None
+
+
+def test_non_numeric_rule_kelvin_falls_back_to_none():
+    st = parse_status('{"per_display":[{"connector":"DP-2","rule_action":{"kelvin":[1,2]}}]}')
+    assert st.displays[0].rule_kelvin is None
+    bad_kelvin = '{"per_display":[{"connector":"DP-2","rule_action":{"kelvin":' \
+                 '{"bad":"value"}}}]}'
+    st = parse_status(bad_kelvin)
+    assert st.displays[0].rule_kelvin is None
+
+
+def test_empty_app_id_in_window_yields_none():
+    st = parse_status('{"per_display":[],"window":{"app_id":"","fullscreen":false}}')
+    assert st.window is None

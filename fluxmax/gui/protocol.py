@@ -55,14 +55,37 @@ def _parse_display(raw: object) -> DisplayStatus | None:
         action = {}
     kelvin = action.get("kelvin")
     manual = raw.get("manual_k")
+
+    # Tolerant coercion: fall back to defaults on type errors.
+    try:
+        current_k = round(float(raw.get("current_k", NEUTRAL_KELVIN)))
+    except (TypeError, ValueError):
+        current_k = NEUTRAL_KELVIN
+
+    if manual is None:
+        manual_k = None
+    else:
+        try:
+            manual_k = round(float(manual))
+        except (TypeError, ValueError):
+            manual_k = None
+
+    if kelvin is None:
+        rule_kelvin = None
+    else:
+        try:
+            rule_kelvin = float(kelvin)
+        except (TypeError, ValueError):
+            rule_kelvin = None
+
     return DisplayStatus(
         connector=connector,
-        current_k=round(float(raw.get("current_k", NEUTRAL_KELVIN))),
+        current_k=current_k,
         enabled=bool(raw.get("enabled", True)),
         override=str(raw.get("override", "none")),
         rule_kind=str(action.get("kind", "none")),
-        rule_kelvin=None if kelvin is None else float(kelvin),
-        manual_k=None if manual is None else round(float(manual)),
+        rule_kelvin=rule_kelvin,
+        manual_k=manual_k,
     )
 
 
