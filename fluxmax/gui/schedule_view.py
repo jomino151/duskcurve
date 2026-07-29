@@ -343,11 +343,13 @@ class ScheduleView(Gtk.Box):
     def _commit_manual_temp(self, kelvin: float) -> None:
         try:
             self._client.set_manual_temp("", round(kelvin), 0)
-        except Exception:
+        except Exception as exc:
             log.exception("set_manual_temp failed")
+            self._state.set_error(str(exc))
 
     def _on_resume_clicked(self, _button: Gtk.Button) -> None:
         try:
             self._client.clear_manual_temp("")
-        except Exception:
+        except Exception as exc:
             log.exception("clear_manual_temp failed")
+            self._state.set_error(str(exc))

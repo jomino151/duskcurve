@@ -202,3 +202,32 @@ def test_clear_error_clears_and_notifies():
     st.clear_error()
     assert st.last_error is None
     assert len(calls) == 1
+
+
+def test_set_error_sets_the_message_and_notifies():
+    st = _state()
+    calls = []
+    st.subscribe(lambda: calls.append(1))
+    st.set_error("set_manual_temp failed: timed out")
+    assert st.last_error == "set_manual_temp failed: timed out"
+    assert len(calls) == 1
+
+
+def test_set_error_is_cleared_by_a_subsequent_successful_apply_config():
+    st = _state()
+    st.set_config_text(dump_config(default_config()))
+    st.set_error("set_manual_temp failed: timed out")
+    assert st.last_error is not None
+    assert st.apply_config(default_config()) is True
+    assert st.last_error is None
+
+
+def test_clear_error_after_set_error_clears_it():
+    st = _state()
+    st.set_error("set_manual_temp failed: timed out")
+    assert st.last_error is not None
+    calls = []
+    st.subscribe(lambda: calls.append(1))
+    st.clear_error()
+    assert st.last_error is None
+    assert len(calls) == 1

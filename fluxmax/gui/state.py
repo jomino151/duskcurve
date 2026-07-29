@@ -80,6 +80,13 @@ class AppState:
         self.last_error = None
         self._notify()
 
+    def set_error(self, message: str) -> None:
+        """Record an error that originated outside the parse/apply paths above
+        (e.g. a failed D-Bus call a view made directly, bypassing apply_config).
+        Mirror of clear_error(): sets last_error and notifies subscribers."""
+        self.last_error = message
+        self._notify()
+
     # -- outbound -------------------------------------------------------
 
     def apply_config(self, cfg: Config) -> bool:
