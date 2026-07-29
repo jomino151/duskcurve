@@ -22,7 +22,7 @@ Two guards recur here, matching `schedule_view.py` and `display_panel.py`:
   feet (or, more subtly, reorder rows whose 0-based index the dialog has
   already captured as the one it is editing).
 - **Re-entrancy guard**: `_render()` sets `self._rendering = True` for the
-  duration of rebuilding the list, and every button's `clicked` handler
+  duration of syncing the list, and every button's `clicked` handler
   checks that flag first and returns immediately if it is set. `_render()`
   itself never calls `AppState.apply_config` -- the guarded handlers are
   the only places that do -- so a rebuild can never be mistaken for a user
@@ -30,6 +30,12 @@ Two guards recur here, matching `schedule_view.py` and `display_panel.py`:
   notifies subscribers too, so a failed apply from inside a handler
   re-enters `_render()`; the flag covers the whole handler body via
   try/finally precisely so that path is also guarded.
+
+Rows are persistent: a status poll updates them in place rather than
+rebuilding the `Gtk.ListBox`, so keyboard focus and hover state survive it.
+That makes a row's index a snapshot rather than a fact, so every row handler
+goes through `_live_index`, which re-reads the config and refuses to act
+unless the rule at the captured index is still the one the row represents.
 
 Match highlighting is best-effort: if `resolve_rules` raises (a
 malformed rule already on disk, from an older or hand-edited config) the
@@ -64,10 +70,19 @@ log = logging.getLogger("fluxmax.gui.rules_panel")
 
 _ACTIONS = ("disable", "force_day", "fixed")
 _BUILTIN_SCOPES = ("all", "window_monitor")
-_DAY_KELVIN = 6500.0
+
+# Only used when there is no config to read max_kelvin from (the daemon has
+# not answered yet). The daemon resolves force_day with
+# day_kelvin=config.max_kelvin -- see Orchestrator.tick/status -- so this
+# constant must never be preferred over a live config value.
+_DEFAULT_DAY_KELVIN = 6500.0
 
 
-def _summarize(rule: Rule) -> str:
+def _day_kelvin(cfg: Config | None) -> float:
+    return _DEFAULT_DAY_KELVIN if cfg is None else cfg.max_kelvin
+
+
+def _summarize(rule: Rule, day_kelvin: float) -> str:
     """A human-readable one-liner, e.g. "Fullscreen apps -> disable filter on
     that display" or "org.gimp.* -> full daylight on all displays"."""
     if rule.match_app_glob and rule.match_fullscreen:
@@ -82,7 +97,7 @@ def _summarize(rule: Rule) -> str:
     if rule.action == "disable":
         action = "disable filter"
     elif rule.action == "force_day":
-        action = f"full daylight ({_DAY_KELVIN:.0f}K)"
+        action = f"full daylight ({day_kelvin:.0f}K)"
     elif rule.action == "fixed":
         kelvin = rule.action_kelvin if rule.action_kelvin is not None else "?"
         action = f"force {kelvin}K"
@@ -125,7 +140,10 @@ def _rule_validation_error(
 
 
 def _winning_indices(
-    rules: tuple[Rule, ...], window: WindowState | None, connectors: tuple[str, ...]
+    rules: tuple[Rule, ...],
+    window: WindowState | None,
+    connectors: tuple[str, ...],
+    day_kelvin: float,
 ) -> dict[str, int]:
     """Map each connector to the index of the rule currently controlling it.
 
@@ -142,12 +160,76 @@ def _winning_indices(
     for i in range(len(rules)):
         if not remaining:
             break
-        actions = resolve_rules(window, rules[: i + 1], connectors, _DAY_KELVIN)
+        actions = resolve_rules(window, rules[: i + 1], connectors, day_kelvin)
         for connector in list(remaining):
             if actions[connector].kind != "none":
                 winners[connector] = i
                 remaining.discard(connector)
     return winners
+
+
+class _RuleRow:
+    """One persistent `Adw.ActionRow` in the list.
+
+    Rows outlive a status poll (see `RulesView._render`), so a row's index is
+    not a constant: `update()` re-stamps both the index and the `Rule` the row
+    currently stands for, and every handler passes `self` rather than a
+    captured integer so it can verify against the live config before acting.
+    """
+
+    def __init__(self, view: "RulesView") -> None:
+        self._view = view
+        self.index = -1
+        self.rule: Rule | None = None
+        self.highlighted = False
+
+        self.row = Adw.ActionRow()
+
+        self.up_button = Gtk.Button(icon_name="go-up-symbolic")
+        self.up_button.set_valign(Gtk.Align.CENTER)
+        self.up_button.connect("clicked", view._on_move_clicked, self, -1)
+        self.row.add_suffix(self.up_button)
+
+        self.down_button = Gtk.Button(icon_name="go-down-symbolic")
+        self.down_button.set_valign(Gtk.Align.CENTER)
+        self.down_button.connect("clicked", view._on_move_clicked, self, 1)
+        self.row.add_suffix(self.down_button)
+
+        self.edit_button = Gtk.Button(icon_name="document-edit-symbolic")
+        self.edit_button.set_valign(Gtk.Align.CENTER)
+        self.edit_button.connect("clicked", view._on_edit_clicked, self)
+        self.row.add_suffix(self.edit_button)
+
+        self.delete_button = Gtk.Button(icon_name="user-trash-symbolic")
+        self.delete_button.set_valign(Gtk.Align.CENTER)
+        self.delete_button.connect("clicked", view._on_delete_clicked, self)
+        self.row.add_suffix(self.delete_button)
+
+    def update(
+        self,
+        index: int,
+        rule: Rule,
+        count: int,
+        matching: list[str],
+        day_kelvin: float,
+    ) -> None:
+        self.index = index
+        self.rule = rule
+
+        self.row.set_title(f"{index + 1}. {_summarize(rule, day_kelvin)}")
+        if matching:
+            self.row.set_subtitle("Currently active on: " + ", ".join(matching))
+            if not self.highlighted:
+                self.row.add_css_class("accent")
+                self.highlighted = True
+        else:
+            self.row.set_subtitle("")
+            if self.highlighted:
+                self.row.remove_css_class("accent")
+                self.highlighted = False
+
+        self.up_button.set_sensitive(index > 0)
+        self.down_button.set_sensitive(index < count - 1)
 
 
 class _RuleDialog(Adw.Dialog):
@@ -278,6 +360,8 @@ class RulesView(Gtk.Box):
         self._rendering = False
         # Gesture guard: True while the add/edit dialog is open.
         self._dialog_open = False
+        # Persistent rows, one per rule, in config order. See _sync_rows.
+        self._rows: list[_RuleRow] = []
 
         self.set_margin_top(12)
         self.set_margin_bottom(12)
@@ -332,23 +416,27 @@ class RulesView(Gtk.Box):
 
         self._rendering = True
         try:
-            self._rebuild_rows(cfg)
+            self._sync_rows(cfg)
         finally:
             self._rendering = False
 
-    def _rebuild_rows(self, cfg: Config) -> None:
-        child = self._list_box.get_first_child()
-        while child is not None:
-            next_child = child.get_next_sibling()
-            self._list_box.remove(child)
-            child = next_child
+    def _sync_rows(self, cfg: Config) -> None:
+        """Bring the list in line with the config without tearing it down.
 
+        A status poll fires every `tick_interval_seconds`; rebuilding the
+        ListBox each time would destroy keyboard focus and hover state inside
+        it, making the list unusable with the keyboard. So rows are only
+        created/removed when the *number* of rules changes -- matching
+        `display_panel._render`'s connector-set test -- and everything that can
+        change without that (position labels, match highlight, button
+        sensitivity) is written into the existing rows in place.
+        """
         status = self._state.status
         connectors = tuple(d.connector for d in status.displays) if status is not None else ()
         window = _window_state(status)
 
         try:
-            winners = _winning_indices(cfg.rules, window, connectors)
+            winners = _winning_indices(cfg.rules, window, connectors, _day_kelvin(cfg))
         except Exception:
             # Best-effort highlighting only; a malformed rule already on disk
             # must not prevent the list from rendering, and must not call
@@ -357,43 +445,37 @@ class RulesView(Gtk.Box):
             log.exception("could not resolve rules for match highlighting")
             winners = {}
 
+        while len(self._rows) > len(cfg.rules):
+            row = self._rows.pop()
+            self._list_box.remove(row.row)
+        while len(self._rows) < len(cfg.rules):
+            row = _RuleRow(self)
+            self._rows.append(row)
+            self._list_box.append(row.row)
+
+        day_kelvin = _day_kelvin(cfg)
         for index, rule in enumerate(cfg.rules):
-            row = self._build_row(index, rule, len(cfg.rules), winners)
-            self._list_box.append(row)
+            matching = sorted(connector for connector, i in winners.items() if i == index)
+            self._rows[index].update(index, rule, len(cfg.rules), matching, day_kelvin)
 
-    def _build_row(
-        self, index: int, rule: Rule, count: int, winners: dict[str, int]
-    ) -> Adw.ActionRow:
-        matching = sorted(connector for connector, i in winners.items() if i == index)
+    def _live_index(self, row: _RuleRow) -> int | None:
+        """The row's index, or None if the row no longer describes the config.
 
-        row = Adw.ActionRow(title=f"{index + 1}. {_summarize(rule)}")
-        if matching:
-            row.set_subtitle("Currently active on: " + ", ".join(matching))
-            row.add_css_class("accent")
-
-        up_button = Gtk.Button(icon_name="go-up-symbolic")
-        up_button.set_valign(Gtk.Align.CENTER)
-        up_button.set_sensitive(index > 0)
-        up_button.connect("clicked", self._on_move_clicked, index, -1)
-        row.add_suffix(up_button)
-
-        down_button = Gtk.Button(icon_name="go-down-symbolic")
-        down_button.set_valign(Gtk.Align.CENTER)
-        down_button.set_sensitive(index < count - 1)
-        down_button.connect("clicked", self._on_move_clicked, index, 1)
-        row.add_suffix(down_button)
-
-        edit_button = Gtk.Button(icon_name="document-edit-symbolic")
-        edit_button.set_valign(Gtk.Align.CENTER)
-        edit_button.connect("clicked", self._on_edit_clicked, index)
-        row.add_suffix(edit_button)
-
-        delete_button = Gtk.Button(icon_name="user-trash-symbolic")
-        delete_button.set_valign(Gtk.Align.CENTER)
-        delete_button.connect("clicked", self._on_delete_clicked, index)
-        row.add_suffix(delete_button)
-
-        return row
+        Rows persist across polls now, and `_render` returns early while the
+        edit dialog is open, so a row can outlive the rule it was stamped with
+        (an external TOML edit, or another action in this view). Every handler
+        must re-read the live config and confirm the rule is still the one the
+        row represents before acting on its index.
+        """
+        cfg = self._state.config
+        if cfg is None or row.rule is None:
+            return None
+        index = row.index
+        if not 0 <= index < len(cfg.rules):
+            return None
+        if cfg.rules[index] != row.rule:
+            return None
+        return index
 
     # -- add / edit -------------------------------------------------------
 
@@ -402,13 +484,13 @@ class RulesView(Gtk.Box):
             return
         self._open_dialog(rule=None, index=None)
 
-    def _on_edit_clicked(self, _button: Gtk.Button, index: int) -> None:
+    def _on_edit_clicked(self, _button: Gtk.Button, row: _RuleRow) -> None:
         if self._rendering:
             return
-        cfg = self._state.config
-        if cfg is None or not 0 <= index < len(cfg.rules):
+        index = self._live_index(row)
+        if index is None:
             return
-        self._open_dialog(rule=cfg.rules[index], index=index)
+        self._open_dialog(rule=self._state.config.rules[index], index=index)
 
     def _open_dialog(self, rule: Rule | None, index: int | None) -> None:
         status = self._state.status
@@ -454,12 +536,13 @@ class RulesView(Gtk.Box):
 
     # -- move / delete ------------------------------------------------------
 
-    def _on_move_clicked(self, _button: Gtk.Button, index: int, delta: int) -> None:
+    def _on_move_clicked(self, _button: Gtk.Button, row: _RuleRow, delta: int) -> None:
         if self._rendering:
             return
-        cfg = self._state.config
-        if cfg is None:
+        index = self._live_index(row)
+        if index is None:
             return
+        cfg = self._state.config
         try:
             new_rules = move_rule(cfg.rules, index, delta)
         except IndexError:
@@ -470,12 +553,13 @@ class RulesView(Gtk.Box):
             log.exception("apply_config raised while moving a rule")
             self._state.set_error(str(exc))
 
-    def _on_delete_clicked(self, _button: Gtk.Button, index: int) -> None:
+    def _on_delete_clicked(self, _button: Gtk.Button, row: _RuleRow) -> None:
         if self._rendering:
             return
-        cfg = self._state.config
-        if cfg is None or not 0 <= index < len(cfg.rules):
+        index = self._live_index(row)
+        if index is None:
             return
+        cfg = self._state.config
         deleted_rule = cfg.rules[index]
         try:
             new_rules = delete_rule(cfg.rules, index)
