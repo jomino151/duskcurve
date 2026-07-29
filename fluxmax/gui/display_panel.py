@@ -11,11 +11,12 @@ status poll instead updates the existing widgets in place, matching
 `schedule_view.py`. The same two guards recur here, but per-connector since
 each display has independent sliders and entries:
 
-- **Gesture guard**: while a display's manual-temperature scale is grabbed,
-  or its value spin row is being edited, `_DisplayGroup.render()` skips
-  pushing a fresh value into that specific widget -- otherwise the periodic
-  status poll (driven by `AppState` subscribers) would fight the user's
-  in-progress interaction.
+- **Gesture guard**: while a display's value spin row is being edited,
+  `_DisplayGroup.render()` skips pushing a fresh value into that specific
+  widget -- otherwise the periodic status poll (driven by `AppState`
+  subscribers) would fight the user's in-progress interaction. The
+  manual-temperature scale carries the equivalent guard (plus its own dirty
+  tracking) inside `ManualTempScale`, which `schedule_view.py` shares.
 - **Re-entrancy guard**: `DisplayView._render()` sets `self._rendering =
   True` for the duration of pushing store values into every group's
   widgets, and every widget's own `notify`/`clicked` handler checks that
@@ -41,6 +42,7 @@ from gi.repository import Adw, GObject, Gtk  # noqa: E402
 
 from fluxmax.daemon.config import Config, DisplayConfig  # noqa: E402
 from fluxmax.gui.client import DaemonClient  # noqa: E402
+from fluxmax.gui.manual_temp import ManualTempScale  # noqa: E402
 from fluxmax.gui.protocol import DisplayStatus  # noqa: E402
 from fluxmax.gui.state import AppState  # noqa: E402
 
@@ -50,7 +52,6 @@ _OVERRIDE_KINDS = ["none", "warm_cap", "fixed", "offset"]
 _KELVIN_KINDS = ("warm_cap", "fixed")
 _OFFSET_MIN = -200.0
 _OFFSET_MAX = 200.0
-_MANUAL_SCALE_STEP = 50.0
 
 
 class _DisplayGroup:
@@ -62,7 +63,6 @@ class _DisplayGroup:
         self.connector = connector
         self._view = view
         self.value_editing = False
-        self.scale_grabbed = False
 
         self.group = Adw.PreferencesGroup(title=connector)
 
@@ -96,18 +96,7 @@ class _DisplayGroup:
         manual_box.set_margin_start(12)
         manual_box.set_margin_end(12)
 
-        self.scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 1000, 10000, 50.0)
-        self.scale.set_hexpand(True)
-        self.scale.set_digits(0)
-        self.scale.set_value_pos(Gtk.PositionType.RIGHT)
-        grab_ctrl = Gtk.GestureClick.new()
-        grab_ctrl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-        grab_ctrl.connect("pressed", self._on_scale_pressed)
-        grab_ctrl.connect("released", self._on_scale_released)
-        self.scale.add_controller(grab_ctrl)
-        scale_focus = Gtk.EventControllerFocus()
-        scale_focus.connect("leave", self._on_scale_focus_leave)
-        self.scale.add_controller(scale_focus)
+        self.scale = ManualTempScale(self._commit_manual_temp, lambda: self._view._rendering)
         manual_box.append(self.scale)
 
         self.resume_button = Gtk.Button(label="Resume")
@@ -146,12 +135,8 @@ class _DisplayGroup:
         else:
             self.badge.set_visible(False)
 
-        if not self.scale_grabbed:
-            adjustment = self.scale.get_adjustment()
-            adjustment.set_lower(cfg.min_kelvin)
-            adjustment.set_upper(cfg.max_kelvin)
-            live = status.manual_k if status.manual_k is not None else status.current_k
-            self.scale.set_value(live)
+        live = status.manual_k if status.manual_k is not None else status.current_k
+        self.scale.render(cfg.min_kelvin, cfg.max_kelvin, live)
 
         self.resume_button.set_sensitive(status.manual_k is not None)
 
@@ -189,9 +174,14 @@ class _DisplayGroup:
         if new_kind == current.override_kind:
             return
         default_value = self._default_value_for(new_kind, current, cfg)
-        self._shape_value_row(new_kind, cfg)
+        # The reshape must be inside the guard, not before it: changing the
+        # adjustment's bounds clamps the current value and emits
+        # notify::value, which would otherwise reach _on_value_changed and
+        # send a second, wrong SetConfig carrying the *old* override_kind
+        # with the newly clamped number.
         self._view._rendering = True
         try:
+            self._shape_value_row(new_kind, cfg)
             self.value_row.set_value(default_value)
         finally:
             self._view._rendering = False
@@ -231,23 +221,6 @@ class _DisplayGroup:
         self._view._state.apply_config(new_cfg)
 
     # -- manual temperature -------------------------------------------------
-
-    def _on_scale_pressed(
-        self, _gesture: Gtk.GestureClick, _n_press: int, _x: float, _y: float
-    ) -> None:
-        self.scale_grabbed = True
-
-    def _on_scale_released(
-        self, _gesture: Gtk.GestureClick, _n_press: int, _x: float, _y: float
-    ) -> None:
-        self.scale_grabbed = False
-        if not self._view._rendering:
-            self._commit_manual_temp(self.scale.get_value())
-
-    def _on_scale_focus_leave(self, _ctrl: Gtk.EventControllerFocus) -> None:
-        self.scale_grabbed = False
-        if not self._view._rendering:
-            self._commit_manual_temp(self.scale.get_value())
 
     def _commit_manual_temp(self, kelvin: float) -> None:
         try:
