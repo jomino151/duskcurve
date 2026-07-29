@@ -471,3 +471,21 @@ scope = "all"
 def test_invalid_rule_blocks_are_rejected(block):
     with pytest.raises(ConfigError):
         load_config(dump_config(default_config()) + "\n" + block)
+
+
+def test_rule_transition_seconds_defaults_to_instant():
+    assert default_config().rule_transition_seconds == 0.0
+    assert load_config(dump_config(default_config())).rule_transition_seconds == 0.0
+
+
+def test_rule_transition_seconds_round_trips():
+    cfg = replace(default_config(), rule_transition_seconds=3.5)
+    assert load_config(dump_config(cfg)) == cfg
+
+
+def test_rule_transition_seconds_rejects_negative():
+    text = dump_config(default_config()).replace(
+        "[transition]\nseconds = 20.0", "[transition]\nseconds = 20.0\nrule_seconds = -1.0"
+    )
+    with pytest.raises(ConfigError):
+        load_config(text)

@@ -35,6 +35,22 @@ schedule curve; and with no override, no manual temp, and no matching rule, the 
 just follows its usual curve (plus any per-display override configured under
 `[displays.<connector>]`).
 
+### How fast a rule takes effect
+
+A rule change is a reaction to something you just did — going fullscreen — not the
+gradual circadian drift the schedule's easing is tuned for, so **rules apply instantly
+by default**. The two speeds are configured separately:
+
+```toml
+[transition]
+seconds = 20.0        # schedule / curve changes: eased over 20s
+rule_seconds = 0.0    # rule engages or releases: 0 = instant (default)
+```
+
+Set `rule_seconds` above zero to ease rule changes instead; the transition then runs at
+that rate in both directions, engaging and releasing. `seconds` is unaffected either
+way — a manual temperature change or ordinary curve drift still eases over `seconds`.
+
 Two copyable examples:
 
 ```toml

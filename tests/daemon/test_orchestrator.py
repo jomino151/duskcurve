@@ -327,10 +327,15 @@ def test_disabled_display_outranks_a_fixed_rule():
 
 
 def test_rule_change_is_eased_not_snapped():
+    """With rule_transition_seconds configured, a rule change goes through the
+    mired easing rather than snapping. (Rule changes are instant by DEFAULT --
+    see test_rule_change_is_instant_by_default; this pins that the eased path
+    still works when the user asks for it.)"""
     cfg = replace(
         default_config(),
         rules=(Rule(action="disable", match_fullscreen=True, scope="window_monitor"),),
         transition_seconds=20.0,
+        rule_transition_seconds=20.0,
     )
     clock = FakeClock(_dt(23, 0))
     be, t, orch = _new(cfg, clock)
@@ -382,3 +387,100 @@ def test_m4_status_keys_are_unchanged():
     st = orch.status()
     assert set(st) >= {"mode", "paused", "per_display", "next_transition"}
     assert set(st["per_display"][0]) >= {"connector", "current_k", "enabled", "override"}
+
+
+# ---------------------------------------------------------------------------
+# Rule transition speed (separate from the schedule's transition_seconds)
+# ---------------------------------------------------------------------------
+
+
+def _rule_cfg(**kw):
+    """Fullscreen->disable on the window's own monitor, slow schedule easing."""
+    return replace(
+        default_config(),
+        rules=(Rule(action="disable", match_fullscreen=True, scope="window_monitor"),),
+        transition_seconds=20.0,
+        **kw,
+    )
+
+
+def test_rule_change_is_instant_by_default():
+    """A rule going active jumps to its target in one tick even though the
+    schedule's own transition_seconds is 20s."""
+    clock = FakeClock(_dt(23, 0))
+    be, t, orch = _new(_rule_cfg(), clock)
+    orch.tick()
+    warm = orch.status()["per_display"][0]["current_k"]
+    assert warm < NEUTRAL_KELVIN
+
+    orch.set_window_state(WindowState("org.game.Game", True, "DP-2"))
+    clock.advance(2.0)
+    orch.tick()
+    assert orch.status()["per_display"][0]["current_k"] == round(NEUTRAL_KELVIN)
+
+
+def test_rule_release_is_instant_by_default():
+    clock = FakeClock(_dt(23, 0))
+    be, t, orch = _new(_rule_cfg(), clock)
+    orch.tick()
+    warm = orch.status()["per_display"][0]["current_k"]
+
+    orch.set_window_state(WindowState("org.game.Game", True, "DP-2"))
+    clock.advance(2.0)
+    orch.tick()
+    orch.set_window_state(None)
+    clock.advance(2.0)
+    orch.tick()
+    assert orch.status()["per_display"][0]["current_k"] == warm
+
+
+def test_rule_transition_seconds_eases_when_configured():
+    clock = FakeClock(_dt(23, 0))
+    be, t, orch = _new(_rule_cfg(rule_transition_seconds=10.0), clock)
+    orch.tick()
+    warm = orch.status()["per_display"][0]["current_k"]
+
+    orch.set_window_state(WindowState("org.game.Game", True, "DP-2"))
+    clock.advance(2.0)
+    orch.tick()
+    mid = orch.status()["per_display"][0]["current_k"]
+    assert warm < mid < round(NEUTRAL_KELVIN)
+
+    # and it keeps easing at the rule rate on subsequent ticks, not the
+    # schedule's slower rate
+    clock.advance(2.0)
+    orch.tick()
+    assert orch.status()["per_display"][0]["current_k"] > mid
+
+
+def test_instant_rule_does_not_speed_up_non_rule_changes():
+    """The instant path is scoped to rule changes. A non-rule target change --
+    here a manual temp, which outranks rules and is not a rule action -- still
+    eases at transition_seconds."""
+    cfg = replace(default_config(), transition_seconds=20.0, rules=())
+    clock = FakeClock(_dt(23, 0))
+    be, t, orch = _new(cfg, clock)
+    orch.tick()
+    warm = orch.status()["per_display"][0]["current_k"]
+    assert warm < NEUTRAL_KELVIN
+
+    orch.set_manual_temp("DP-2", 6500, 60)
+    clock.advance(2.0)
+    orch.tick()
+    mid = orch.status()["per_display"][0]["current_k"]
+    # eased partway toward 6500, not snapped to it
+    assert warm < mid < round(NEUTRAL_KELVIN)
+
+
+def test_rule_transition_only_affects_the_scoped_connector():
+    clock = FakeClock(_dt(23, 0))
+    be, t, orch = _new(_rule_cfg(), clock)
+    orch.tick()
+    warm = orch.status()["per_display"][1]["current_k"]
+
+    orch.set_window_state(WindowState("org.game.Game", True, "DP-2"))
+    clock.advance(2.0)
+    orch.tick()
+    per = {d["connector"]: d for d in orch.status()["per_display"]}
+    assert per["DP-2"]["current_k"] == round(NEUTRAL_KELVIN)
+    assert per["HDMI-1"]["current_k"] == warm
