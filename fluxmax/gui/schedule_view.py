@@ -115,6 +115,15 @@ class ScheduleView(Gtk.Box):
         schedule_group.add(self._mode_row)
 
         self._wake_row = Adw.EntryRow(title="Wake (HH:MM)")
+        # Adw.EntryRow only emits ::apply when show-apply-button is True
+        # (verified live against libadwaita 1.5.0; it's False by default) --
+        # without this, Enter never committed and the next render silently
+        # reverted the user's typed text. Same bug as the Preferences
+        # timezone field; see prefs.py. ::apply itself only covers Enter and
+        # the apply-button click, though (also verified live) -- it does not
+        # fire on a plain focus-out, so the focus-leave handler below commits
+        # explicitly too.
+        self._wake_row.set_show_apply_button(True)
         self._wake_row.connect("apply", self._on_wake_apply)
         focus = Gtk.EventControllerFocus()
         focus.connect("enter", self._on_wake_focus_enter)
@@ -123,6 +132,7 @@ class ScheduleView(Gtk.Box):
         schedule_group.add(self._wake_row)
 
         self._bedtime_row = Adw.EntryRow(title="Bedtime (HH:MM)")
+        self._bedtime_row.set_show_apply_button(True)
         self._bedtime_row.connect("apply", self._on_bedtime_apply)
         focus = Gtk.EventControllerFocus()
         focus.connect("enter", self._on_bedtime_focus_enter)
@@ -278,12 +288,16 @@ class ScheduleView(Gtk.Box):
 
     def _on_wake_focus_leave(self, _ctrl: Gtk.EventControllerFocus) -> None:
         self._wake_editing = False
+        # ::apply doesn't fire on a plain focus-out (verified live) -- commit
+        # explicitly so tabbing/clicking away doesn't silently drop the edit.
+        self._on_wake_apply(self._wake_row)
 
     def _on_bedtime_focus_enter(self, _ctrl: Gtk.EventControllerFocus) -> None:
         self._bedtime_editing = True
 
     def _on_bedtime_focus_leave(self, _ctrl: Gtk.EventControllerFocus) -> None:
         self._bedtime_editing = False
+        self._on_bedtime_apply(self._bedtime_row)
 
     def _on_wake_apply(self, row: Adw.EntryRow) -> None:
         if self._rendering:
