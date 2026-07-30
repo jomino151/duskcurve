@@ -136,7 +136,20 @@ class ScheduleView(Gtk.Box):
         self._curve_editor = CurveEditor(self._on_keypoints_changed)
         curve_frame = Gtk.Frame()
         curve_frame.set_child(self._curve_editor)
-        self.append(curve_frame)
+        # The curve editor has a fixed 600px content width (keeping the
+        # drawn curve legible) that does not shrink -- without this, that
+        # fixed width propagates straight up through the page's vertical
+        # ScrolledWindow into the window's own size request, so a window
+        # narrowed toward the minimum could never actually get that narrow
+        # (an AdwToolbarView "exceeds width" warning, discovered live at the
+        # 360px minimum). Scrolling horizontally here, and only here, keeps
+        # the curve at full resolution while letting the window (and every
+        # other row on this page) shrink freely.
+        curve_scroller = Gtk.ScrolledWindow()
+        curve_scroller.set_child(curve_frame)
+        curve_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
+        curve_scroller.set_propagate_natural_height(True)
+        self.append(curve_scroller)
 
         # -- manual temperature -------------------------------------------
         manual_group = Adw.PreferencesGroup(
