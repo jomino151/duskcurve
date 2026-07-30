@@ -92,3 +92,37 @@ Then **log out and back in** — on Wayland, GNOME Shell cannot be restarted in 
 ```bash
 gnome-extensions enable focused-window@fluxmax
 ```
+
+## GUI
+
+Launch with `fluxmax-gui` (requires the daemon to be running; if the daemon is not reachable, the app shows a status page instead of working offline, since the daemon owns the configuration and the GUI never edits the config file directly).
+
+The window has three tabs:
+
+- **Schedule**: Mode selection (built-in modes or a custom editable curve), wake and bedtime times (HH:MM), a manual temperature slider with colour-temperature presets (Ember, Candle, Dim Incandescent, Incandescent, Halogen, Fluorescent, Sunlight, Daylight), and a "Resume schedule" button to clear the override. The curve editor occupies the centre of the screen and shows the day's colour-temperature curve with markers for the configured wake/bedtime and solar events (sunrise/sunset).
+
+- **Displays**: Per-display controls for each connected monitor. Each display shows its live colour temperature, an enable/disable toggle, an override kind (none, `warm_cap`, `fixed`, or a mired `offset`), and a value field. A manual slider and resume button are available below. An accent badge appears when a window rule is currently controlling that display, showing which rule and what action it is applying.
+
+- **Rules**: The ordered list of app and fullscreen rules (first-match-wins: rules are evaluated top to bottom, and the first match wins). Use "Add rule" to create a new rule, or click the edit icon on an existing rule to change it. Up/down arrows reorder rules; delete removes them with an undo toast. Rules are highlighted if they are currently active on any display, showing which monitors they control.
+
+### Curve editing
+
+- **Dragging a keypoint vertically**: Change its temperature on release. If the mode is built-in, dragging a keypoint copies the curve to an editable custom mode and switches the mode automatically.
+
+- **Dragging an event-anchored keypoint horizontally**: Adjust its offset. The config file will still name the event anchor (`sunrise`, `sunset`, `wake`, `bedtime`) rather than a fixed clock time, so the keypoint keeps tracking that event as the seasons change.
+
+- **Double-click**: Insert a new keypoint at the clicked time.
+
+- **Right-click**: Open a popover to change the keypoint's time anchor (fixed or event-based) or delete it. Deletion is refused at the last keypoint.
+
+### Configuration file warning
+
+Saving from the GUI rewrites `~/.config/fluxmax/config.toml` through the daemon's own serializer, so any hand-written comments, key order, or layout is not preserved. The app shows a one-time banner on the first save of the session confirming this. Users who hand-edit the config file should know this before they lose a comment. The GUI also monitors the file for external changes — if you edit the TOML by hand while the app is open, the daemon picks up the change and the GUI follows it within a couple of seconds.
+
+### Menu
+
+A menu button (☰) in the header opens **Preferences**, where you can set the location (latitude, longitude, and IANA timezone), temperature range (minimum and maximum Kelvin), and timing parameters:
+
+- **Transition (s)**: Easing time for the gradual circadian drift (default 20 s).
+- **Rule transition (s)**: Easing time for rule engages and releases, separate from the regular transition. Rules react to deliberate user actions like going fullscreen, not the slow circadian drift, so this defaults to 0 (instant).
+- **Tick interval (s)**: How often the daemon re-evaluates the schedule (default 2 s).

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=flux-max
+GenericName=Blue Light Filter
+Comment=Circadian colour temperature for your displays
+Exec=fluxmax-gui
+Icon=org.fluxmax.gui
+Terminal=false
+Categories=Utility;Settings;DesktopSettings;
+Keywords=night;light;blue;colour;color;temperature;redshift;flux;
+StartupNotify=true

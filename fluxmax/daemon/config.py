@@ -177,11 +177,12 @@ def _validate_schedule(raw: dict) -> tuple[str, str, str, tuple[KeypointConfig, 
 
     if mode == "custom" and not keypoints:
         raise ConfigError("schedule.mode 'custom' requires a non-empty schedule.keypoints list")
-    if mode != "custom" and keypoints:
-        raise ConfigError(
-            f"schedule.keypoints is only valid when mode == 'custom' (mode is {mode!r})"
-        )
 
+    # Keypoints alongside a non-custom mode are deliberately *allowed*: they
+    # are the user's parked custom curve, retained but unused while a built-in
+    # mode is selected, so that switching back to "custom" restores the fork
+    # rather than discarding it (design spec 6.4). dump_config emits them
+    # regardless of mode to keep that promise across a save/load cycle.
     return wake, bedtime, mode, keypoints
 
 
@@ -403,14 +404,15 @@ def dump_config(cfg: Config) -> str:
     lines.append(f"mode = {_fmt_str(cfg.mode)}")
     lines.append("")
 
-    if cfg.mode == "custom":
-        for kp in cfg.custom_keypoints:
-            lines.append("[[schedule.keypoints]]")
-            lines.append(f"anchor = {_fmt_str(kp.anchor)}")
-            lines.append(f"offset_min = {int(kp.offset_min)}")
-            lines.append(f"kelvin = {_fmt_float(kp.kelvin)}")
-            lines.append(f"easing = {_fmt_str(kp.easing)}")
-            lines.append("")
+    # Emitted regardless of mode: a parked custom curve must survive a round
+    # trip while a built-in mode is selected. See _validate_schedule.
+    for kp in cfg.custom_keypoints:
+        lines.append("[[schedule.keypoints]]")
+        lines.append(f"anchor = {_fmt_str(kp.anchor)}")
+        lines.append(f"offset_min = {int(kp.offset_min)}")
+        lines.append(f"kelvin = {_fmt_float(kp.kelvin)}")
+        lines.append(f"easing = {_fmt_str(kp.easing)}")
+        lines.append("")
 
     lines.append("[range]")
     lines.append(f"min_kelvin = {_fmt_float(cfg.min_kelvin)}")

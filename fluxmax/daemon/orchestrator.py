@@ -57,7 +57,7 @@ class Orchestrator:
         self._last_tick_dt: datetime | None = None
         self._paused = False
         # connector -> (kelvin, expiry); connector "" applies to all connectors.
-        self._manual: dict[str, tuple[float, datetime]] = {}
+        self._manual: dict[str, tuple[float, datetime | None]] = {}
         self._window: WindowState | None = None
         # Rule-driven transitions ease at their own rate (config
         # rule_transition_seconds, 0 = instant) rather than at the schedule's
@@ -81,7 +81,10 @@ class Orchestrator:
     def set_manual_temp(self, connector: str, kelvin: int, duration_min: int) -> None:
         if kelvin <= 0:
             raise ValueError(f"kelvin must be positive, got {kelvin}")
-        expiry = self._clock() + timedelta(minutes=duration_min)
+        # duration_min <= 0 means "until explicitly cleared": store no expiry at
+        # all. Previously this computed an expiry of `now`, which expired on the
+        # very next read and made the call a no-op.
+        expiry = None if duration_min <= 0 else self._clock() + timedelta(minutes=duration_min)
         self._manual[connector] = (float(kelvin), expiry)
 
     def clear_manual_temp(self, connector: str) -> None:
@@ -148,6 +151,11 @@ class Orchestrator:
         self._last_tick_dt = now
 
     def status(self) -> dict:
+        # Side effect worth knowing about: the per-display manual_k lookup goes
+        # through _manual_kelvin, which evicts expired entries from
+        # self._manual. So this read path mutates state. It is benign -- the
+        # same entry would be evicted by the next tick regardless -- but it
+        # means status() is not a pure observer.
         displays = self._backend.list_displays()
         actions = resolve_rules(
             self._window,
@@ -169,6 +177,11 @@ class Orchestrator:
                     "enabled": dc.enabled,
                     "override": dc.override_kind,
                     "rule_action": {"kind": action.kind, "kelvin": action.kelvin},
+                    "manual_k": (
+                        None
+                        if (mk := self._manual_kelvin(connector, self._clock())) is None
+                        else round(mk)
+                    ),
                 }
             )
         return {
@@ -214,20 +227,14 @@ class Orchestrator:
         return DayContext(sunrise=ev.sunrise, sunset=ev.sunset, wake=wake, bedtime=bedtime)
 
     def _manual_kelvin(self, connector: str, now: datetime) -> float | None:
-        entry = self._manual.get(connector)
-        if entry is not None:
+        for key in (connector, ""):
+            entry = self._manual.get(key)
+            if entry is None:
+                continue
             kelvin, expiry = entry
-            if now < expiry:
+            if expiry is None or now < expiry:
                 return kelvin
-            del self._manual[connector]
-
-        entry = self._manual.get("")
-        if entry is not None:
-            kelvin, expiry = entry
-            if now < expiry:
-                return kelvin
-            del self._manual[""]
-
+            del self._manual[key]
         return None
 
     def _raw_target(

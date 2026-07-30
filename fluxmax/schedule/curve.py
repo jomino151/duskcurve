@@ -4,6 +4,7 @@ Pure stdlib (dataclasses/datetime) + fluxmax.color — no gi/D-Bus/GTK.
 All interpolation goes through fluxmax.color.lerp_kelvin (mired-space).
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -54,38 +55,52 @@ def _resolve_anchor(anchor: Anchor, ctx: DayContext) -> float:
     return minutes % 1440
 
 
+def anchor_minutes(anchor: Anchor, ctx: DayContext) -> float:
+    """Public: resolve an anchor to minutes past local midnight, mod 1440."""
+    return _resolve_anchor(anchor, ctx)
+
+
+def walk_minutes(keypoints: Sequence[Keypoint], ctx: DayContext) -> list[float]:
+    """Resolve keypoints to a monotonic non-decreasing walk around the day.
+
+    The keypoint list is an ordered walk, not a sortable set: event anchors
+    move seasonally and can invert relative to each other. Each keypoint's
+    resolved time is pushed forward by whole days until it is at or after the
+    running time, and any residual backward inversion is clamped to the
+    running time (a zero-length segment), never reordered.
+    """
+    if not keypoints:
+        return []
+    base = _resolve_anchor(keypoints[0].anchor, ctx)
+    times: list[float] = []
+    running: float | None = None
+    for kp in keypoints:
+        m = _resolve_anchor(kp.anchor, ctx)
+        while m < base:
+            m += 1440
+        if running is not None and m < running:
+            m = running
+        running = m
+        times.append(m)
+    return times
+
+
 class Curve:
     def __init__(self, keypoints: list[Keypoint]) -> None:
         if not keypoints:
             raise ValueError("Curve requires at least one keypoint")
         self._keypoints = list(keypoints)
 
+    @property
+    def keypoints(self) -> tuple[Keypoint, ...]:
+        return tuple(self._keypoints)
+
     def evaluate(self, now: datetime, ctx: DayContext) -> float:
         keypoints = self._keypoints
         if len(keypoints) == 1:
             return keypoints[0].kelvin
 
-        # The keypoint list is an ordered walk around the day, not a sortable
-        # set of absolute times: event anchors move seasonally and can invert
-        # relative to each other (e.g. bedtime landing shortly after sunset,
-        # or a high-latitude late sunset). Sorting by resolved time would
-        # interleave keypoints from different phases of the cycle. Instead,
-        # walk the list in authored order, building a monotonic non-decreasing
-        # sequence of times: each keypoint's raw resolved time is pushed
-        # forward (by whole days) until it is at or after the running time,
-        # and any residual backward inversion is clamped to the running time
-        # (a zero-length segment), never reordered.
-        base = _resolve_anchor(keypoints[0].anchor, ctx)
-        times: list[float] = []
-        running: float | None = None
-        for kp in keypoints:
-            m = _resolve_anchor(kp.anchor, ctx)
-            while m < base:
-                m += 1440
-            if running is not None and m < running:
-                m = running
-            running = m
-            times.append(m)
+        times = walk_minutes(keypoints, ctx)
 
         now_min = now.hour * 60 + now.minute + now.second / 60
         n = len(keypoints)
