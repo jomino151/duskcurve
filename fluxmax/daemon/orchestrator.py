@@ -26,8 +26,9 @@ from fluxmax.schedule import (
 
 NEUTRAL_KELVIN = 6500.0
 
-# Kelvin gap below which a display counts as having reached its target, ending
-# a rule-paced transition. Well under a perceptible step at any temperature.
+# Kelvin gap below which a display counts as having reached its target,
+# ending a non-schedule-paced transition and resetting pacing back to
+# "schedule". Well under a perceptible step at any temperature.
 _CONVERGED_KELVIN = 1.0
 
 _EVENT_ANCHORS = frozenset({"sunrise", "sunset", "wake", "bedtime"})
@@ -59,23 +60,46 @@ class Orchestrator:
         # connector -> (kelvin, expiry); connector "" applies to all connectors.
         self._manual: dict[str, tuple[float, datetime | None]] = {}
         self._window: WindowState | None = None
-        # Rule-driven transitions ease at their own rate (config
-        # rule_transition_seconds, 0 = instant) rather than at the schedule's
-        # transition_seconds. A rule change is a reaction to a deliberate user
-        # action, so it should land immediately; the circadian drift the slow
-        # easing exists for is a different kind of change.
+        # Track the previous per-display config so set_config can detect an
+        # enabled flip (a deliberate on/off action) per connector.
+        self._prev_displays: dict[str, DisplayConfig] = dict(config.displays)
         self._prev_actions: dict[str, RuleAction] = {}
-        # connector -> still converging on a rule-driven target. Set when the
-        # resolved action changes, cleared once the display reaches the target,
-        # so a multi-tick rule transition keeps its own rate the whole way
-        # instead of reverting to the schedule's rate after the first tick.
-        self._rule_transition: dict[str, bool] = {}
+        # Every temperature change eases toward its target, but the pace
+        # depends on WHAT caused the change, not just that it changed:
+        # "schedule" (curve drift, the default/fallback), "manual" (a
+        # deliberate temp set/clear), "toggle" (pause or display enable
+        # flipping -- hardcoded instant), or "rule" (a window rule engaging or
+        # releasing). Set when the cause happens, cleared back to "schedule"
+        # once the display converges on its target, so a multi-tick
+        # transition keeps its own rate the whole way instead of reverting to
+        # the schedule's rate after the first tick.
+        self._pacing: dict[str, str] = {}
 
     def set_config(self, config: Config) -> None:
+        # A display's enabled flag flipping is a deliberate on/off action, so
+        # it gets instant ("toggle") pacing -- same reasoning as set_paused
+        # below. Detect it per connector by diffing against the previously
+        # known per-display config; a connector absent from a dict falls back
+        # to DisplayConfig()'s default (enabled=True).
+        old_displays = self._prev_displays
+        new_displays = config.displays
+        for connector in set(old_displays) | set(new_displays):
+            old_enabled = old_displays.get(connector, DisplayConfig()).enabled
+            new_enabled = new_displays.get(connector, DisplayConfig()).enabled
+            if old_enabled != new_enabled:
+                self._pacing[connector] = "toggle"
+        self._prev_displays = dict(new_displays)
+
         self._config = config
         self._curve = self._build_curve(config)
 
     def set_paused(self, paused: bool) -> None:
+        # Pausing/unpausing is a binary on/off action, not a temperature
+        # target -- there is no useful in-between rate, so it is hardcoded to
+        # instant ("toggle" pacing, 0 seconds) rather than exposed as a config
+        # knob. Do not "fix" this into a configurable duration.
+        if paused != self._paused:
+            self._mark_pacing_all("toggle")
         self._paused = paused
 
     def set_manual_temp(self, connector: str, kelvin: int, duration_min: int) -> None:
@@ -86,9 +110,28 @@ class Orchestrator:
         # very next read and made the call a no-op.
         expiry = None if duration_min <= 0 else self._clock() + timedelta(minutes=duration_min)
         self._manual[connector] = (float(kelvin), expiry)
+        # A deliberate manual set eases at manual_transition_seconds -- quicker
+        # than the schedule's drift, but not instant. This must NOT be
+        # confused with a manual temp expiring on its own inside
+        # _manual_kelvin, which is not a deliberate action and stays at
+        # schedule pacing (nothing marks it here).
+        self._mark_pacing(connector, "manual")
 
     def clear_manual_temp(self, connector: str) -> None:
         self._manual.pop(connector, None)
+        # Explicitly clearing (e.g. pressing Resume) is just as deliberate as
+        # setting one, so it gets the same manual pacing back to the curve.
+        self._mark_pacing(connector, "manual")
+
+    def _mark_pacing(self, connector: str, category: str) -> None:
+        if connector == "":
+            self._mark_pacing_all(category)
+        else:
+            self._pacing[connector] = category
+
+    def _mark_pacing_all(self, category: str) -> None:
+        for display in self._backend.list_displays():
+            self._pacing[display.connector] = category
 
     def set_window_state(self, window: WindowState | None) -> None:
         """Store the focused/fullscreen window state. Does not tick; the caller must."""
@@ -99,7 +142,7 @@ class Orchestrator:
         for connector in list(self._current_k):
             if connector not in connectors:
                 del self._current_k[connector]
-        for state in (self._prev_actions, self._rule_transition):
+        for state in (self._prev_actions, self._pacing):
             for connector in list(state):
                 if connector not in connectors:
                     del state[connector]
@@ -123,14 +166,16 @@ class Orchestrator:
             # engaging or releasing -- starts a rule-paced transition.
             action = actions.get(connector, NO_ACTION)
             if action != self._prev_actions.get(connector, NO_ACTION):
-                self._rule_transition[connector] = True
+                self._pacing[connector] = "rule"
             self._prev_actions[connector] = action
 
-            ts = (
-                self._config.rule_transition_seconds
-                if self._rule_transition.get(connector, False)
-                else self._config.transition_seconds
-            )
+            category = self._pacing.get(connector, "schedule")
+            ts = {
+                "schedule": self._config.transition_seconds,
+                "manual": self._config.manual_transition_seconds,
+                "rule": self._config.rule_transition_seconds,
+                "toggle": 0.0,
+            }[category]
             factor = 1.0 if ts <= 0 else min(1.0, dt / ts)
 
             if connector not in self._current_k:
@@ -142,7 +187,7 @@ class Orchestrator:
                 current_k = mired_to_kelvin(current_m)
 
             if abs(current_k - target_k) <= _CONVERGED_KELVIN:
-                self._rule_transition[connector] = False
+                self._pacing[connector] = "schedule"
 
             self._current_k[connector] = current_k
             red, green, blue = build_ramp(display.ramp_size, current_k)

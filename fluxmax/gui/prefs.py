@@ -58,9 +58,10 @@ _KELVIN_MARGIN = 1.0
 _KELVIN_FLOOR = 1.0
 _KELVIN_CEIL = 99999.0
 
-# fluxmax.daemon.config._validate_transition: seconds >= 0, rule_seconds >= 0.
+# fluxmax.daemon.config._validate_transition: seconds >= 0, rule_seconds >= 0,
+# manual_seconds >= 0.
 # fluxmax.daemon.config._validate_tick: interval_seconds > 0.
-# No daemon-side upper bound on any of the three; cap the widgets generously
+# No daemon-side upper bound on any of the four; cap the widgets generously
 # so the UI stays usable rather than to satisfy a validator.
 _TRANSITION_MAX = 3600.0
 _TICK_MIN = 0.1
@@ -85,6 +86,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self._max_kelvin_editing = False
         self._transition_editing = False
         self._rule_transition_editing = False
+        self._manual_transition_editing = False
         self._tick_editing = False
 
         page = Adw.PreferencesPage()
@@ -188,6 +190,21 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self._rule_transition_row.add_controller(rule_transition_focus)
         timing_group.add(self._rule_transition_row)
 
+        self._manual_transition_row = Adw.SpinRow.new_with_range(0.0, _TRANSITION_MAX, 1.0)
+        self._manual_transition_row.set_title("Manual transition (s)")
+        self._manual_transition_row.set_subtitle(
+            "Easing time for a deliberate temperature change (slider, quick-set), as distinct "
+            "from the schedule's gradual drift -- quick, but not snap-instant like a pause or "
+            "display toggle."
+        )
+        self._manual_transition_row.set_digits(1)
+        self._manual_transition_row.connect("notify::value", self._on_manual_transition_changed)
+        manual_transition_focus = Gtk.EventControllerFocus()
+        manual_transition_focus.connect("enter", self._on_manual_transition_focus_enter)
+        manual_transition_focus.connect("leave", self._on_manual_transition_focus_leave)
+        self._manual_transition_row.add_controller(manual_transition_focus)
+        timing_group.add(self._manual_transition_row)
+
         self._tick_row = Adw.SpinRow.new_with_range(_TICK_MIN, _TICK_MAX, 0.5)
         self._tick_row.set_title("Tick interval (s)")
         self._tick_row.set_subtitle("How often the daemon re-evaluates the schedule.")
@@ -251,6 +268,8 @@ class PreferencesDialog(Adw.PreferencesDialog):
                 self._transition_row.set_value(cfg.transition_seconds)
             if not self._rule_transition_editing:
                 self._rule_transition_row.set_value(cfg.rule_transition_seconds)
+            if not self._manual_transition_editing:
+                self._manual_transition_row.set_value(cfg.manual_transition_seconds)
             if not self._tick_editing:
                 self._tick_row.set_value(cfg.tick_interval_seconds)
         finally:
@@ -339,6 +358,12 @@ class PreferencesDialog(Adw.PreferencesDialog):
     def _on_rule_transition_focus_leave(self, _ctrl: Gtk.EventControllerFocus) -> None:
         self._rule_transition_editing = False
 
+    def _on_manual_transition_focus_enter(self, _ctrl: Gtk.EventControllerFocus) -> None:
+        self._manual_transition_editing = True
+
+    def _on_manual_transition_focus_leave(self, _ctrl: Gtk.EventControllerFocus) -> None:
+        self._manual_transition_editing = False
+
     def _on_tick_focus_enter(self, _ctrl: Gtk.EventControllerFocus) -> None:
         self._tick_editing = True
 
@@ -361,6 +386,16 @@ class PreferencesDialog(Adw.PreferencesDialog):
             return
         self._state.apply_config(
             dataclasses.replace(cfg, rule_transition_seconds=row.get_value())
+        )
+
+    def _on_manual_transition_changed(self, row: Adw.SpinRow, _pspec: GObject.ParamSpec) -> None:
+        if self._rendering:
+            return
+        cfg = self._state.config
+        if cfg is None:
+            return
+        self._state.apply_config(
+            dataclasses.replace(cfg, manual_transition_seconds=row.get_value())
         )
 
     def _on_tick_changed(self, row: Adw.SpinRow, _pspec: GObject.ParamSpec) -> None:

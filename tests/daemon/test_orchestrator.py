@@ -125,7 +125,10 @@ def test_manual_temp_connector_specific_beats_all():
 
 
 def test_set_manual_temp_rejects_non_positive_kelvin_without_poisoning_ticks():
-    cfg = replace(default_config(), transition_seconds=0.0)
+    # manual_transition_seconds=0.0 too: this test is about rejection not
+    # poisoning state, not about easing pace, and the clock never advances
+    # between ticks here so a non-zero manual pace would leave factor at 0.
+    cfg = replace(default_config(), transition_seconds=0.0, manual_transition_seconds=0.0)
     clock = FakeClock(_dt(13, 0))
     be, _t, orch = _new(cfg, clock)
 
@@ -189,13 +192,17 @@ def test_pause_and_unpause():
 
 
 def test_easing_lands_strictly_between_old_and_target():
+    # A deliberate manual set eases at manual_transition_seconds (default
+    # 3.0s), not the schedule's transition_seconds -- see the pacing tests
+    # below. transition_seconds is set high here to prove that a slow
+    # schedule pace does NOT leak into the manual change.
     cfg = replace(default_config(), transition_seconds=60.0)
     clock = FakeClock(_dt(13, 0))
     be, _t, orch = _new(cfg, clock)
 
     orch.tick()  # first application for each connector snaps to 6500
     orch.set_manual_temp("DP-2", 2000, 10)
-    clock.advance(5)  # small dt relative to the 60s transition
+    clock.advance(1)  # small dt relative to the 3s manual transition
     orch.tick()
 
     status = orch.status()
@@ -575,3 +582,190 @@ def test_status_keeps_every_pre_m6_key():
     entry = orch.status()["per_display"][0]
     for key in ("connector", "current_k", "enabled", "override", "rule_action"):
         assert key in entry
+
+
+# ---------------------------------------------------------------------------
+# Cause-based pacing (M6 hardware-pass fix): schedule / manual / toggle / rule
+# ---------------------------------------------------------------------------
+#
+# transition_seconds=20 (schedule) and manual_transition_seconds=3 (manual,
+# the default) are always kept far apart in these tests so a wrong pacing
+# category produces an unmistakably wrong amount of movement, not just a
+# slightly-off number.
+
+
+def _k(orch, connector="DP-2") -> float:
+    return next(d for d in orch.status()["per_display"] if d["connector"] == connector)[
+        "current_k"
+    ]
+
+
+def test_pausing_reaches_neutral_in_one_tick_not_gradually():
+    cfg = replace(default_config(), transition_seconds=20.0)
+    clock = FakeClock(_dt(3, 0))  # deep night: curve wants 2700
+    be, _t, orch = _new(cfg, clock)
+    orch.tick()  # first-ever application snaps to the curve value
+    assert _k(orch) == 2700
+
+    orch.set_paused(True)
+    clock.advance(1)  # tiny compared to the 20s schedule pace
+    orch.tick()
+    assert _k(orch) == round(NEUTRAL_KELVIN)
+
+
+def test_unpausing_returns_to_the_curve_in_one_tick():
+    cfg = replace(default_config(), transition_seconds=20.0)
+    clock = FakeClock(_dt(3, 0))
+    be, _t, orch = _new(cfg, clock)
+    orch.tick()
+    orch.set_paused(True)
+    clock.advance(1)
+    orch.tick()
+    assert _k(orch) == round(NEUTRAL_KELVIN)
+
+    orch.set_paused(False)
+    clock.advance(1)  # tiny compared to the 20s schedule pace
+    orch.tick()
+    assert _k(orch) == 2700
+
+
+def test_disabling_a_display_is_instant_sibling_keeps_schedule_pace():
+    cfg = replace(default_config(), transition_seconds=20.0)
+    clock = FakeClock(_dt(3, 0))  # both connectors start at 2700
+    be, _t, orch = _new(cfg, clock)
+    orch.tick()
+    assert _k(orch, "DP-2") == 2700
+    assert _k(orch, "HDMI-1") == 2700
+
+    # Disable DP-2 and, in the same config push, give HDMI-1 a new fixed
+    # target so its schedule-paced movement is observable.
+    orch.set_config(
+        replace(
+            cfg,
+            displays={
+                "DP-2": DisplayConfig(enabled=False),
+                "HDMI-1": DisplayConfig(override_kind="fixed", override_value=5000),
+            },
+        )
+    )
+    clock.advance(5)  # small compared to the 20s schedule pace
+    orch.tick()
+
+    assert _k(orch, "DP-2") == round(NEUTRAL_KELVIN)  # instant, one tick
+    # HDMI-1 is unaffected by DP-2's toggle: it still eases at schedule pace,
+    # so a 5s tick against a 20s transition has moved but not arrived.
+    assert 2700 < _k(orch, "HDMI-1") < 5000
+
+
+def test_reenabling_a_display_is_instant():
+    cfg = replace(
+        default_config(),
+        transition_seconds=20.0,
+        displays={"DP-2": DisplayConfig(enabled=False)},
+    )
+    clock = FakeClock(_dt(3, 0))
+    be, _t, orch = _new(cfg, clock)
+    orch.tick()
+    assert _k(orch) == round(NEUTRAL_KELVIN)
+
+    orch.set_config(replace(cfg, displays={"DP-2": DisplayConfig(enabled=True)}))
+    clock.advance(1)  # tiny compared to the 20s schedule pace
+    orch.tick()
+    assert _k(orch) == 2700
+
+
+def test_manual_set_converges_at_manual_pace_not_schedule_or_instant():
+    cfg = replace(default_config(), transition_seconds=20.0, manual_transition_seconds=3.0)
+    clock = FakeClock(_dt(13, 0))  # noon: curve wants 6500
+    be, _t, orch = _new(cfg, clock)
+    orch.tick()
+    assert _k(orch) == 6500
+
+    orch.set_manual_temp("DP-2", 2000, 60)
+    clock.advance(1)  # 1s against a 3s manual pace: moved, not arrived
+    orch.tick()
+    k = _k(orch)
+    # at manual pace (3s) this lands around 3714K; at schedule pace (20s) it
+    # would barely move off 6500 (~5843K); instant would already be at 2000K.
+    assert 3300 < k < 4200
+
+
+def test_clear_manual_temp_returns_to_curve_at_manual_pace():
+    cfg = replace(default_config(), transition_seconds=20.0, manual_transition_seconds=3.0)
+    clock = FakeClock(_dt(13, 0))
+    be, _t, orch = _new(cfg, clock)
+    orch.tick()
+    orch.set_manual_temp("DP-2", 2000, 60)
+    clock.advance(5)  # exceeds the 3s manual pace: fully converges
+    orch.tick()
+    assert _k(orch) == 2000
+
+    orch.clear_manual_temp("DP-2")
+    clock.advance(1)  # 1s against a 3s manual pace: moved, not arrived
+    orch.tick()
+    k = _k(orch)
+    # at manual pace (3s) this lands around 2600K; at schedule pace (20s) it
+    # would barely move off 2000K (~2072K).
+    assert 2200 < k < 3200
+
+
+def test_manual_temp_expiry_drifts_back_at_schedule_pace_not_manual_pace():
+    """The subtle distinction: a deliberate clear_manual_temp eases at manual
+    pace (see above), but a manual temp expiring on its own is not a
+    deliberate action and must ease back at the slower schedule pace."""
+    cfg = replace(default_config(), transition_seconds=20.0, manual_transition_seconds=3.0)
+    clock = FakeClock(_dt(13, 0))
+    be, _t, orch = _new(cfg, clock)
+    orch.tick()
+
+    orch.set_manual_temp("DP-2", 2000, 1)  # expires 60s from now
+    clock.advance(5)  # exceeds the 3s manual pace: fully converges to 2000
+    orch.tick()
+    assert _k(orch) == 2000
+
+    clock.advance(54)  # 59s elapsed since the manual set: not expired yet
+    orch.tick()
+    assert _k(orch) == 2000  # unchanged: target hasn't moved
+
+    clock.advance(2)  # 61s elapsed: expired. dt for this tick is only 2s.
+    orch.tick()
+    k = _k(orch)
+    # at schedule pace (20s) a 2s tick barely moves off 2000K (~2149K); at
+    # manual pace (3s) it would already be around 3714K.
+    assert 2000 < k < 2300
+
+
+def test_pacing_persists_across_ticks_until_convergence_then_resets_to_schedule():
+    cfg = replace(default_config(), transition_seconds=20.0, manual_transition_seconds=3.0)
+    clock = FakeClock(_dt(13, 0))
+    be, _t, orch = _new(cfg, clock)
+    orch.tick()
+
+    orch.set_manual_temp("DP-2", 2000, 1)  # expires 60s from now
+    clock.advance(1)
+    orch.tick()
+    first = _k(orch)
+    assert 2000 < first < 6500  # manual pace, first tick
+
+    clock.advance(1)
+    orch.tick()
+    second = _k(orch)
+    assert 2000 < second < first  # still easing at manual pace, second tick
+
+    clock.advance(10)  # well past manual pace: fully converges (12s elapsed)
+    orch.tick()
+    assert _k(orch) == 2000
+
+    clock.advance(46)  # 58s elapsed since the manual set: not expired yet
+    orch.tick()
+    assert _k(orch) == 2000  # unchanged: target hasn't moved
+
+    # Pacing has reset to "schedule" (it reset back at the convergence tick
+    # above). Now the manual temp expires on its own -- not a deliberate
+    # action -- so the drift back to the curve eases at the slow schedule
+    # rate, not the fast manual rate, even though "manual" was this
+    # connector's most recent active category.
+    clock.advance(3)  # 61s elapsed: expired. dt for this tick is only 3s.
+    orch.tick()
+    third = _k(orch)
+    assert 2000 < third < 2600
