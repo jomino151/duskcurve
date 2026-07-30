@@ -66,7 +66,7 @@ _TRANSITION_MAX = 3600.0
 _TICK_MIN = 0.1
 _TICK_MAX = 3600.0
 
-_TIMEZONES = available_timezones()
+_TIMEZONES = sorted(available_timezones())
 
 
 class PreferencesDialog(Adw.PreferencesDialog):
@@ -81,7 +81,6 @@ class PreferencesDialog(Adw.PreferencesDialog):
         # and the user may be mid-edit.
         self._latitude_editing = False
         self._longitude_editing = False
-        self._timezone_editing = False
         self._min_kelvin_editing = False
         self._max_kelvin_editing = False
         self._transition_editing = False
@@ -115,12 +114,19 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self._longitude_row.add_controller(lon_focus)
         location_group.add(self._longitude_row)
 
-        self._timezone_row = Adw.EntryRow(title="Timezone (IANA name)")
-        self._timezone_row.connect("apply", self._on_timezone_apply)
-        tz_focus = Gtk.EventControllerFocus()
-        tz_focus.connect("enter", self._on_timezone_focus_enter)
-        tz_focus.connect("leave", self._on_timezone_focus_leave)
-        self._timezone_row.add_controller(tz_focus)
+        # A searchable dropdown makes an invalid timezone unrepresentable --
+        # no validation branch or error path needed, unlike the freeform
+        # Adw.EntryRow this replaces. Adw.ComboRow (unlike Gtk.DropDown) was
+        # verified live against this libadwaita 1.5.0 install to expose an
+        # `enable-search` property directly, so it's used here rather than
+        # wrapping a Gtk.DropDown in an Adw.ActionRow.
+        timezone_model = Gtk.StringList.new(_TIMEZONES)
+        self._timezone_row = Adw.ComboRow(title="Timezone", model=timezone_model)
+        self._timezone_row.set_enable_search(True)
+        self._timezone_row.set_expression(
+            Gtk.PropertyExpression.new(Gtk.StringObject, None, "string")
+        )
+        self._timezone_row.connect("notify::selected", self._on_timezone_changed)
         location_group.add(self._timezone_row)
 
         # -- Temperature --------------------------------------------------
@@ -223,8 +229,11 @@ class PreferencesDialog(Adw.PreferencesDialog):
                 self._latitude_row.set_value(cfg.location.latitude)
             if not self._longitude_editing:
                 self._longitude_row.set_value(cfg.location.longitude)
-            if not self._timezone_editing:
-                self._timezone_row.set_text(cfg.location.timezone)
+            try:
+                tz_index = _TIMEZONES.index(cfg.location.timezone)
+            except ValueError:
+                tz_index = Gtk.INVALID_LIST_POSITION
+            self._timezone_row.set_selected(tz_index)
 
             # Reshape the min/max adjustments so neither row can be dragged
             # past the other -- see module docstring.
@@ -261,12 +270,6 @@ class PreferencesDialog(Adw.PreferencesDialog):
     def _on_longitude_focus_leave(self, _ctrl: Gtk.EventControllerFocus) -> None:
         self._longitude_editing = False
 
-    def _on_timezone_focus_enter(self, _ctrl: Gtk.EventControllerFocus) -> None:
-        self._timezone_editing = True
-
-    def _on_timezone_focus_leave(self, _ctrl: Gtk.EventControllerFocus) -> None:
-        self._timezone_editing = False
-
     def _on_latitude_changed(self, row: Adw.SpinRow, _pspec: GObject.ParamSpec) -> None:
         if self._rendering:
             return
@@ -277,20 +280,13 @@ class PreferencesDialog(Adw.PreferencesDialog):
             return
         self._write_location(longitude=row.get_value())
 
-    def _on_timezone_apply(self, row: Adw.EntryRow) -> None:
+    def _on_timezone_changed(self, row: Adw.ComboRow, _pspec: GObject.ParamSpec) -> None:
         if self._rendering:
             return
-        cfg = self._state.config
-        if cfg is None:
+        index = row.get_selected()
+        if index == Gtk.INVALID_LIST_POSITION:
             return
-        text = row.get_text().strip()
-        if text not in _TIMEZONES:
-            # Refuse in the dialog rather than sending an invalid timezone to
-            # the daemon: revert the entry to the last known-good value.
-            row.set_text(cfg.location.timezone)
-            self._state.set_error(f"{text!r} is not a known IANA timezone")
-            return
-        self._write_location(timezone=text)
+        self._write_location(timezone=_TIMEZONES[index])
 
     def _write_location(self, **kwargs) -> None:
         cfg = self._state.config
