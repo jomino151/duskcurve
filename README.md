@@ -49,7 +49,9 @@ just that it changed:
   because nobody asked for that change right now — it's the schedule reclaiming control.
 - **Manual** — you set or clear a manual temperature (slider, quick-set, or the "Resume
   schedule" button). Deliberate, but not urgent; eases over `manual_transition_seconds`
-  (default 3 s).
+  (default 2 s). This is a time constant, not a duration — each tick closes
+  `min(1, dt/seconds)` of the remaining gap, so at the default 2 s tick interval a
+  2.0 s constant settles the whole change in about one tick.
 - **Toggle** — pausing/unpausing the daemon, or enabling/disabling a display. Both are
   a binary on/off decision with no useful in-between rate, so these are hardcoded
   **instant** (not configurable).
@@ -60,7 +62,7 @@ just that it changed:
 ```toml
 [transition]
 seconds = 20.0         # schedule: curve drift / override recompute / manual-temp expiry
-manual_seconds = 3.0   # manual: a deliberate temp set or clear
+manual_seconds = 2.0   # manual: a deliberate temp set or clear
 rule_seconds = 0.0     # rule: a rule engaging or releasing -- 0 = instant (default)
 # pause/unpause and display enable/disable are always instant, not configurable
 ```
@@ -150,7 +152,7 @@ Saving from the GUI rewrites `~/.config/fluxmax/config.toml` through the daemon'
 A menu button (☰) in the header opens **Preferences**, where you can set the location (latitude, longitude, and IANA timezone), temperature range (minimum and maximum Kelvin), and timing parameters:
 
 - **Transition (s)**: Easing time for the gradual circadian drift (default 20 s).
-- **Manual transition (s)**: Easing time for a deliberate temperature change (slider, quick-set), as distinct from the schedule's gradual drift — quick, but not snap-instant like a pause or display toggle (default 3 s).
+- **Manual transition (s)**: Easing time for a deliberate temperature change (slider, quick-set), as distinct from the schedule's gradual drift — quick, but not snap-instant like a pause or display toggle (default 2 s).
 - **Rule transition (s)**: Easing time for rule engages and releases, separate from the regular transition. Rules react to deliberate user actions like going fullscreen, not the slow circadian drift, so this defaults to 0 (instant).
 - **Tick interval (s)**: How often the daemon re-evaluates the schedule (default 2 s).
 

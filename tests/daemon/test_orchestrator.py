@@ -469,9 +469,19 @@ def test_rule_transition_seconds_eases_when_configured():
 
 
 def test_instant_rule_does_not_speed_up_non_rule_changes():
-    """The instant path is scoped to rule changes. A non-rule target change --
-    here a manual temp, which outranks rules and is not a rule action -- still
-    eases at transition_seconds."""
+    """The instant-by-default rule path is scoped to actual rule changes. A
+    schedule-paced target change -- here a per-display override edit, which is
+    neither a rule action, a manual temp, nor a pause/enable toggle -- still
+    eases at transition_seconds and must not snap.
+
+    A manual temp is NOT used as the example here (as it once was): manual
+    changes now ease at their own manual_transition_seconds (2s default,
+    separate from this test's rules/schedule pacing), and at the default 2s
+    tick interval that settles within a single tick -- so it can no longer
+    demonstrate "still eases gradually". See
+    test_manual_set_converges_at_manual_pace_not_schedule_or_instant for the
+    manual-pace assertion instead.
+    """
     cfg = replace(default_config(), transition_seconds=20.0, rules=())
     clock = FakeClock(_dt(23, 0))
     be, t, orch = _new(cfg, clock)
@@ -479,7 +489,9 @@ def test_instant_rule_does_not_speed_up_non_rule_changes():
     warm = orch.status()["per_display"][0]["current_k"]
     assert warm < NEUTRAL_KELVIN
 
-    orch.set_manual_temp("DP-2", 6500, 60)
+    orch.set_config(
+        replace(cfg, displays={"DP-2": DisplayConfig(override_kind="fixed", override_value=6500)})
+    )
     clock.advance(2.0)
     orch.tick()
     mid = orch.status()["per_display"][0]["current_k"]

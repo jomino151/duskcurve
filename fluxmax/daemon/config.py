@@ -68,7 +68,15 @@ class Config:
     # Easing time for a deliberate manual temperature change (slider set, or
     # explicitly clearing a manual override) -- quicker than the schedule's
     # gradual drift, but not instant like a rule or a pause/enable toggle.
-    manual_transition_seconds: float = 3.0
+    #
+    # This is a TIME CONSTANT, not a duration: each tick closes
+    # min(1, dt / seconds) of the remaining gap, so the approach is
+    # exponential and the perceived settle is longer than the number. At the
+    # default 2 s tick interval, 2.0 closes the whole gap in one tick (~2 s
+    # perceived) while 3.0 takes ~8 s -- which read as sluggish on hardware.
+    # Hence 2.0: inside the "5 s max for a deliberate change" the manual pass
+    # asked for, still eased rather than a jump.
+    manual_transition_seconds: float = 2.0
     tick_interval_seconds: float = 2.0
     displays: dict[str, DisplayConfig] = field(default_factory=dict)  # keyed by connector
     rules: tuple[Rule, ...] = ()
@@ -223,7 +231,7 @@ def _validate_transition(raw: dict) -> tuple[float, float]:
         raise ConfigError(f"transition.rule_seconds must be >= 0, got {rule_seconds}")
 
     try:
-        manual_seconds = float(raw.get("manual_seconds", 3.0))
+        manual_seconds = float(raw.get("manual_seconds", 2.0))
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"transition.manual_seconds must be numeric: {exc}") from exc
     if manual_seconds < 0:

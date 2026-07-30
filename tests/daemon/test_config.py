@@ -556,9 +556,9 @@ def test_rule_transition_seconds_rejects_negative():
         load_config(text)
 
 
-def test_manual_transition_seconds_defaults_to_three():
-    assert default_config().manual_transition_seconds == 3.0
-    assert load_config(dump_config(default_config())).manual_transition_seconds == 3.0
+def test_manual_transition_seconds_defaults_to_two():
+    assert default_config().manual_transition_seconds == 2.0
+    assert load_config(dump_config(default_config())).manual_transition_seconds == 2.0
 
 
 def test_manual_transition_seconds_round_trips():
@@ -589,7 +589,7 @@ manual_seconds = "abc"
 def test_config_written_before_manual_transition_seconds_still_loads():
     """A TOML document with no [transition].manual_seconds key at all (as
     written by a pre-change build) must still load, defaulting the field."""
-    text = dump_config(default_config()).replace("manual_seconds = 3.0\n", "")
+    text = dump_config(default_config()).replace("manual_seconds = 2.0\n", "")
     assert "manual_seconds" not in text
     cfg = load_config(text)
-    assert cfg.manual_transition_seconds == 3.0
+    assert cfg.manual_transition_seconds == 2.0
