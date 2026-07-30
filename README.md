@@ -97,6 +97,15 @@ gnome-extensions enable focused-window@fluxmax
 
 Launch with `fluxmax-gui` (requires the daemon to be running; if the daemon is not reachable, the app shows a status page instead of working offline, since the daemon owns the configuration and the GUI never edits the config file directly).
 
+The curve editor needs the `python3-gi-cairo` system package (the PyGObject-to-pycairo
+bridge) to draw. It's a separate package from `python3-cairo`/pycairo itself, so it's easy
+to have one without the other. If it's missing, the rest of the GUI still works normally —
+the curve editor just shows a status page naming this fix instead of the curve:
+
+```bash
+sudo apt install python3-gi-cairo
+```
+
 The window has three tabs:
 
 - **Schedule**: Mode selection (built-in modes or a custom editable curve), wake and bedtime times (HH:MM), a manual temperature slider with colour-temperature presets (Ember, Candle, Dim Incandescent, Incandescent, Halogen, Fluorescent, Sunlight, Daylight), and a "Resume schedule" button to clear the override. The curve editor occupies the centre of the screen and shows the day's colour-temperature curve with markers for the configured wake/bedtime and solar events (sunrise/sunset).
