@@ -13,7 +13,9 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
+gi.require_foreign("cairo")
 
+import cairo  # noqa: E402
 from gi.repository import Gdk, GObject, Gtk  # noqa: E402
 
 from fluxmax.color import kelvin_to_rgb  # noqa: E402
@@ -139,7 +141,7 @@ class CurveEditor(Gtk.DrawingArea):
 
     # -- drawing --------------------------------------------------------
 
-    def _on_draw(self, _area: Gtk.DrawingArea, cr, width: int, height: int) -> None:
+    def _on_draw(self, _area: Gtk.DrawingArea, cr: cairo.Context, width: int, height: int) -> None:
         if not self._kps or self._ctx is None or self._now is None:
             return
         vp = Viewport(
