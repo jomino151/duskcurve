@@ -125,7 +125,8 @@ To remove flux-max:
 ```
 
 This stops and removes the daemon unit, resets every display back to 6500 K, restores Night
-Light to the value it had before `./install.sh` ran, and removes the extension, desktop entry,
+Light to the value it had before `./install.sh` ran (or, if that value was never successfully
+recorded, leaves Night Light alone and tells you so), and removes the extension, desktop entry,
 icon, `~/.local/bin` symlinks and venv. Your `~/.config/fluxmax/config.toml` is kept, so a
 later reinstall picks up where you left off — pass `--purge` to delete it too.
 

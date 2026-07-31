@@ -120,6 +120,7 @@ def test_declining_apt_is_not_fatal(sandbox):
     assert proc.returncode == 0
     assert not sandbox.called("sudo")
     assert "python3-gi-cairo" in proc.stdout
+    assert "Fix later with" in proc.stderr
     assert (sandbox.data / "fluxmax" / "venv").exists()
 
 
