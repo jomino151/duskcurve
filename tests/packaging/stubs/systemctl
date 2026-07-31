@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+echo "systemctl $*" >> "$STUB_LOG"
+if [ "${STUB_SYSTEMCTL_FAIL:-0}" = "1" ]; then
+    echo "systemctl: failed" >&2
+    exit 1
+fi
+exit 0

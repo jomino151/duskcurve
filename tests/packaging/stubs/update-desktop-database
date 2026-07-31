@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo "update-desktop-database $*" >> "$STUB_LOG"
+exit 0

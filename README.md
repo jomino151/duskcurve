@@ -86,6 +86,54 @@ action = "force_day"
 scope = "all"
 ```
 
+## Install
+
+```bash
+./install.sh
+```
+
+This is idempotent — re-running it is the supported way to upgrade. It:
+
+- creates a `--system-site-packages` virtualenv at `~/.local/share/fluxmax/venv` and installs
+  flux-max into it;
+- symlinks `fluxmax-daemon`, `fluxmax-gui` and `fluxmax-apply` into `~/.local/bin`;
+- installs the icon, desktop entry, the `focused-window@fluxmax` GNOME Shell extension, and the
+  `fluxmax-daemon` systemd user unit;
+- records your current Night Light setting (so `./uninstall.sh` can restore it) and enables and
+  starts the daemon.
+
+Flags:
+
+- `--dev` — editable install (`pip install -e`) and a symlinked extension, for working on
+  flux-max itself. The default copies both instead, so the install survives the repo being
+  moved or deleted.
+- `--no-start` — install everything but don't enable or start the daemon.
+- `-h`, `--help` — show usage.
+
+First run, after `./install.sh` finishes:
+
+1. **Log out and back in.** On Wayland, GNOME Shell cannot be restarted in place
+   (`Alt+F2 r` does not work), so the extension will not load until you do. Until then,
+   window rules are inert — the daemon still runs the schedule normally on every display.
+2. Set your location and wake/bedtime, either by launching `fluxmax-gui` or by editing
+   `~/.config/fluxmax/config.toml` directly.
+
+To remove flux-max:
+
+```bash
+./uninstall.sh
+```
+
+This stops and removes the daemon unit, resets every display back to 6500 K, restores Night
+Light to the value it had before `./install.sh` ran (or, if that value was never successfully
+recorded, leaves Night Light alone and tells you so), and removes the extension, desktop entry,
+icon, `~/.local/bin` symlinks and venv. Your `~/.config/fluxmax/config.toml` is kept, so a
+later reinstall picks up where you left off — pass `--purge` to delete it too.
+
+The curve editor also needs the `python3-gi-cairo` system package (the PyGObject-to-pycairo
+bridge), which `./install.sh` offers to install for you via `sudo apt install
+python3-gi-cairo` if it's missing. See the GUI section below for what happens if you decline.
+
 ## GNOME Shell extension
 
 Rules need to know which application is focused and whether it's fullscreen. On
@@ -99,18 +147,9 @@ degrades gracefully (no window state is ever reported), no rule ever matches, an
 daemon keeps running its normal brightness/temperature schedule on every display exactly
 as if no rules were configured.
 
-For now (M7 will automate this), install it manually with a symlink:
-
-```bash
-ln -s "$PWD/extension/focused-window@fluxmax" ~/.local/share/gnome-shell/extensions/focused-window@fluxmax
-```
-
-Then **log out and back in** — on Wayland, GNOME Shell cannot be restarted in place, so
-`Alt+F2 r` does not work here — and finally enable the extension:
-
-```bash
-gnome-extensions enable focused-window@fluxmax
-```
+`./install.sh` installs and enables the extension for you, but it cannot load into a running
+GNOME Shell session: on Wayland, GNOME Shell cannot be restarted in place, so `Alt+F2 r` does
+not work here. You must **log out and back in** before rules take effect.
 
 ## GUI
 
@@ -118,12 +157,9 @@ Launch with `fluxmax-gui` (requires the daemon to be running; if the daemon is n
 
 The curve editor needs the `python3-gi-cairo` system package (the PyGObject-to-pycairo
 bridge) to draw. It's a separate package from `python3-cairo`/pycairo itself, so it's easy
-to have one without the other. If it's missing, the rest of the GUI still works normally —
-the curve editor just shows a status page naming this fix instead of the curve:
-
-```bash
-sudo apt install python3-gi-cairo
-```
+to have one without the other. `./install.sh` offers to install it for you; if it's missing,
+the rest of the GUI still works normally — the curve editor just shows a status page naming
+this fix instead of the curve.
 
 The window has three tabs:
 

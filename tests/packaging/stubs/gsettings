@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Fake gsettings that actually persists, so Night Light round-trips are real.
+echo "gsettings $*" >> "$STUB_LOG"
+case "$1" in
+  get)
+    if [ "${STUB_GSETTINGS_GET_FAIL:-0}" = "1" ]; then
+        echo "gsettings: get failed" >&2
+        exit 1
+    fi
+    f="$GSETTINGS_STORE/$2.$3"
+    if [ -f "$f" ]; then cat "$f"; else echo "false"; fi
+    ;;
+  set)
+    if [ "${STUB_GSETTINGS_SET_FAIL:-0}" = "1" ]; then
+        echo "gsettings: set failed" >&2
+        exit 1
+    fi
+    printf '%s\n' "$4" > "$GSETTINGS_STORE/$2.$3"
+    ;;
+esac
+exit 0
