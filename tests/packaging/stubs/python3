@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Fake interpreter: probes answer from env, `-m venv` fabricates a venv tree.
+echo "python3 $*" >> "$STUB_LOG"
+case "$*" in
+  --version) echo "Python 3.12.3"; exit 0 ;;
+esac
+if [ "$1" = "-m" ] && [ "$2" = "venv" ]; then
+  target="${@: -1}"
+  mkdir -p "$target/bin"
+  # A pip that logs what it was asked to install.
+  printf '#!/usr/bin/env bash\necho "pip $*" >> "%s"\nexit 0\n' "$STUB_LOG" > "$target/bin/pip"
+  chmod +x "$target/bin/pip"
+  for s in fluxmax-daemon fluxmax-gui fluxmax-apply; do
+    printf '#!/usr/bin/env bash\necho "%s $*" >> "%s"\nexit 0\n' "$s" "$STUB_LOG" > "$target/bin/$s"
+    chmod +x "$target/bin/$s"
+  done
+  exit 0
+fi
+if [ "$1" = "-m" ] && [ "$2" = "pip" ] && [ "$3" = "show" ]; then
+  exit "${STUB_PIP_SHOW_OK:-1}"
+fi
+if [ "$1" = "-c" ]; then
+  case "$2" in
+    *require_foreign*) [ "${STUB_CAIRO_OK:-1}" = "1" ] && exit 0 || exit 1 ;;
+    *import\ gi*)      [ "${STUB_GI_OK:-1}" = "1" ] && exit 0 || exit 1 ;;
+  esac
+  exit 0
+fi
+exit 0

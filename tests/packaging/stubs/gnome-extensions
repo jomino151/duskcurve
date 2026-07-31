@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo "gnome-extensions $*" >> "$STUB_LOG"
+exit 0
