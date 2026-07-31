@@ -33,6 +33,28 @@ def test_parses_a_full_payload():
     assert st.window == WindowStatus("org.gimp.GIMP", True, "DP-2")
 
 
+def test_parses_the_manual_expiry():
+    st = parse_status(
+        '{"per_display": [{"connector": "DP-2", "current_k": 3000, "manual_k": 2500,'
+        ' "manual_expires_in_s": 1500}]}'
+    )
+    assert st.display("DP-2").manual_expires_in_s == 1500
+
+
+def test_missing_manual_expiry_falls_back_to_none():
+    """An older daemon has no such key; the GUI must simply show no countdown
+    rather than breaking."""
+    assert parse_status(FULL).display("HDMI-1").manual_expires_in_s is None
+
+
+def test_non_numeric_manual_expiry_falls_back_to_none():
+    st = parse_status(
+        '{"per_display": [{"connector": "DP-2", "manual_k": 2500,'
+        ' "manual_expires_in_s": "soon"}]}'
+    )
+    assert st.display("DP-2").manual_expires_in_s is None
+
+
 def test_live_kelvin_is_the_eased_value_not_the_manual_target():
     """manual_k is the *target* of a manual override; the display eases toward
     it over manual_transition_seconds. A readout must show current_k, or it

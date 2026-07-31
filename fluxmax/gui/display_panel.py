@@ -42,6 +42,11 @@ from gi.repository import Adw, GObject, Gtk  # noqa: E402
 
 from fluxmax.daemon.config import Config, DisplayConfig  # noqa: E402
 from fluxmax.gui.client import DaemonClient  # noqa: E402
+from fluxmax.gui.duration import (  # noqa: E402
+    DURATION_LABELS,
+    DURATION_MINUTES,
+    manual_description,
+)
 from fluxmax.gui.manual_temp import ManualTempScale  # noqa: E402
 from fluxmax.gui.protocol import DisplayStatus  # noqa: E402
 from fluxmax.gui.state import AppState  # noqa: E402
@@ -107,6 +112,13 @@ class _DisplayGroup:
         self.value_row.add_controller(value_focus)
         self.group.add(self.value_row)
 
+        # A control, not a readout -- never written from status, so no
+        # re-entrancy guard is needed (unlike the scale below).
+        self.duration_row = Adw.ComboRow(
+            title="Manual duration", model=Gtk.StringList.new(list(DURATION_LABELS))
+        )
+        self.group.add(self.duration_row)
+
         manual_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         manual_box.set_margin_top(6)
         manual_box.set_margin_bottom(6)
@@ -126,7 +138,10 @@ class _DisplayGroup:
     # -- rendering --------------------------------------------------------
 
     def render(self, cfg: Config, display_cfg: DisplayConfig, status: DisplayStatus) -> None:
-        self.group.set_description(f"Current: {status.current_k} K")
+        description = f"Current: {status.current_k} K"
+        if status.manual_k is not None:
+            description += f" · {manual_description(True, status.manual_expires_in_s)}"
+        self.group.set_description(description)
 
         self.enabled_row.set_active(display_cfg.enabled)
 
@@ -241,8 +256,9 @@ class _DisplayGroup:
     # -- manual temperature -------------------------------------------------
 
     def _commit_manual_temp(self, kelvin: float) -> None:
+        duration_min = DURATION_MINUTES[self.duration_row.get_selected()]
         try:
-            self._view._client.set_manual_temp(self.connector, round(kelvin), 0)
+            self._view._client.set_manual_temp(self.connector, round(kelvin), duration_min)
         except Exception as exc:
             log.exception("set_manual_temp failed for %s", self.connector)
             self._view._state.set_error(str(exc))

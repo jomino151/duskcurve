@@ -247,6 +247,7 @@ def test_status_shape():
             "override",
             "rule_action",
             "manual_k",
+            "manual_expires_in_s",
         }
         assert set(d.keys()) == expected_keys
         assert isinstance(d["current_k"], int)
@@ -777,6 +778,88 @@ def test_backwards_clock_step_mid_transition_holds_instead_of_diverging():
     clock.advance(2)  # and time moving forward again resumes the transition
     orch.tick()
     assert 2700 < _k(orch) < mid
+
+
+def _expiry(orch, connector="DP-2"):
+    return next(d for d in orch.status()["per_display"] if d["connector"] == connector)[
+        "manual_expires_in_s"
+    ]
+
+
+def test_status_reports_no_expiry_when_no_manual_override_is_active():
+    cfg = replace(default_config(), transition_seconds=0.0)
+    clock = FakeClock(_dt(13, 0))
+    _be, _t, orch = _new(cfg, clock)
+    orch.tick()
+    assert _expiry(orch) is None
+
+
+def test_status_reports_no_expiry_for_an_until_cleared_manual_override():
+    """duration_min <= 0 means "until explicitly cleared": there is a manual
+    override but no expiry, and the two states must stay distinguishable."""
+    cfg = replace(default_config(), transition_seconds=0.0)
+    clock = FakeClock(_dt(13, 0))
+    _be, _t, orch = _new(cfg, clock)
+    orch.tick()
+    orch.set_manual_temp("DP-2", 2000, 0)
+    orch.tick()
+
+    st = next(d for d in orch.status()["per_display"] if d["connector"] == "DP-2")
+    assert st["manual_k"] == 2000  # override IS active
+    assert st["manual_expires_in_s"] is None  # it just never expires
+
+
+def test_status_counts_down_a_timed_manual_override():
+    cfg = replace(default_config(), transition_seconds=0.0)
+    clock = FakeClock(_dt(13, 0))
+    _be, _t, orch = _new(cfg, clock)
+    orch.tick()
+    orch.set_manual_temp("DP-2", 2000, 30)
+    assert _expiry(orch) == 1800
+
+    clock.advance(600)
+    orch.tick()
+    assert _expiry(orch) == 1200
+
+
+def test_status_drops_the_expiry_once_the_manual_override_has_expired():
+    cfg = replace(default_config(), transition_seconds=0.0)
+    clock = FakeClock(_dt(13, 0))
+    _be, _t, orch = _new(cfg, clock)
+    orch.tick()
+    orch.set_manual_temp("DP-2", 2000, 1)
+    assert _expiry(orch) == 60
+
+    clock.advance(61)
+    orch.tick()
+    st = next(d for d in orch.status()["per_display"] if d["connector"] == "DP-2")
+    assert st["manual_k"] is None
+    assert st["manual_expires_in_s"] is None
+
+
+def test_a_global_manual_override_reports_its_expiry_on_every_display():
+    """Connector "" applies to all displays, so each of them must report the
+    same countdown rather than only the connector the call named."""
+    cfg = replace(default_config(), transition_seconds=0.0)
+    clock = FakeClock(_dt(13, 0))
+    _be, _t, orch = _new(cfg, clock)
+    orch.tick()
+    orch.set_manual_temp("", 2000, 45)
+
+    assert _expiry(orch, "DP-2") == 2700
+    assert _expiry(orch, "HDMI-1") == 2700
+
+
+def test_a_per_connector_expiry_wins_over_the_global_one():
+    cfg = replace(default_config(), transition_seconds=0.0)
+    clock = FakeClock(_dt(13, 0))
+    _be, _t, orch = _new(cfg, clock)
+    orch.tick()
+    orch.set_manual_temp("", 2000, 60)
+    orch.set_manual_temp("DP-2", 3000, 10)
+
+    assert _expiry(orch, "DP-2") == 600
+    assert _expiry(orch, "HDMI-1") == 3600
 
 
 def test_manual_set_converges_at_manual_pace_not_schedule_or_instant():

@@ -190,11 +190,12 @@ class Orchestrator:
         self._last_tick_dt = now
 
     def status(self) -> dict:
-        # Side effect worth knowing about: the per-display manual_k lookup goes
-        # through _manual_kelvin, which evicts expired entries from
+        # Side effect worth knowing about: the per-display manual lookup goes
+        # through _manual_entry, which evicts expired entries from
         # self._manual. So this read path mutates state. It is benign -- the
         # same entry would be evicted by the next tick regardless -- but it
         # means status() is not a pure observer.
+        now = self._clock()
         displays = self._backend.list_displays()
         actions = resolve_rules(
             self._window,
@@ -213,6 +214,13 @@ class Orchestrator:
                 connector, self._current_k.get(connector, NEUTRAL_KELVIN)
             )
             action = actions.get(connector, NO_ACTION)
+            # Three distinct states the GUI must be able to tell apart: no
+            # override (both null), an override that never expires (kelvin set,
+            # expiry null), and a timed one (both set).
+            manual = self._manual_entry(connector, now)
+            manual_expires_in_s = None
+            if manual is not None and manual[1] is not None:
+                manual_expires_in_s = max(0, round((manual[1] - now).total_seconds()))
             per_display.append(
                 {
                     "connector": connector,
@@ -220,11 +228,8 @@ class Orchestrator:
                     "enabled": dc.enabled,
                     "override": dc.override_kind,
                     "rule_action": {"kind": action.kind, "kelvin": action.kelvin},
-                    "manual_k": (
-                        None
-                        if (mk := self._manual_kelvin(connector, self._clock())) is None
-                        else round(mk)
-                    ),
+                    "manual_k": None if manual is None else round(manual[0]),
+                    "manual_expires_in_s": manual_expires_in_s,
                 }
             )
         return {
@@ -282,16 +287,27 @@ class Orchestrator:
         dc = self._config.displays.get(connector, DisplayConfig())
         return kelvin if dc.enabled else NEUTRAL_KELVIN
 
-    def _manual_kelvin(self, connector: str, now: datetime) -> float | None:
+    def _manual_entry(
+        self, connector: str, now: datetime
+    ) -> tuple[float, datetime | None] | None:
+        """The manual override in force for `connector`, with its expiry.
+
+        A per-connector entry beats the global ("") one. Evicts entries it
+        finds expired -- the side effect `status` documents.
+        """
         for key in (connector, ""):
             entry = self._manual.get(key)
             if entry is None:
                 continue
             kelvin, expiry = entry
             if expiry is None or now < expiry:
-                return kelvin
+                return kelvin, expiry
             del self._manual[key]
         return None
+
+    def _manual_kelvin(self, connector: str, now: datetime) -> float | None:
+        entry = self._manual_entry(connector, now)
+        return None if entry is None else entry[0]
 
     def _raw_target(
         self, connector: str, now: datetime, ctx: DayContext, actions: dict[str, RuleAction]

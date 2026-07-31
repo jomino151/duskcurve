@@ -15,7 +15,7 @@ def test_importing_gui_pure_modules_does_not_pull_in_gi():
     code = (
         "import sys; "
         "import fluxmax.gui.protocol, fluxmax.gui.state, "
-        "fluxmax.gui.editing, fluxmax.gui.geometry; "
+        "fluxmax.gui.editing, fluxmax.gui.geometry, fluxmax.gui.duration; "
         "assert not any(m == 'gi' or m.startswith('gi.') for m in sys.modules), "
         "'a pure fluxmax.gui module pulled in gi'"
     )

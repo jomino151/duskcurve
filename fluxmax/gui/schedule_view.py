@@ -39,6 +39,11 @@ from fluxmax.color import PRESETS  # noqa: E402
 from fluxmax.daemon.config import Config  # noqa: E402
 from fluxmax.gui.client import DaemonClient  # noqa: E402
 from fluxmax.gui.curve_editor import CurveEditor  # noqa: E402
+from fluxmax.gui.duration import (  # noqa: E402
+    DURATION_LABELS,
+    DURATION_MINUTES,
+    manual_description,
+)
 from fluxmax.gui.editing import effective_keypoints, fork_to_custom, with_keypoints  # noqa: E402
 from fluxmax.gui.manual_temp import ManualTempScale  # noqa: E402
 from fluxmax.gui.state import AppState  # noqa: E402
@@ -162,9 +167,18 @@ class ScheduleView(Gtk.Box):
         self.append(curve_scroller)
 
         # -- manual temperature -------------------------------------------
-        manual_group = Adw.PreferencesGroup(
-            title="Manual temperature", description="Overrides the schedule until cleared."
+        self._manual_group = Adw.PreferencesGroup(
+            title="Manual temperature", description=manual_description(False, None)
         )
+        manual_group = self._manual_group
+
+        # A control, not a readout: never written from status, so unlike the
+        # scale it needs no re-entrancy guard. Whatever is selected when the
+        # user releases the slider (or clicks a preset) is what gets sent.
+        self._duration_row = Adw.ComboRow(
+            title="Duration", model=Gtk.StringList.new(list(DURATION_LABELS))
+        )
+        manual_group.add(self._duration_row)
 
         scale_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         scale_box.set_margin_top(6)
@@ -228,6 +242,16 @@ class ScheduleView(Gtk.Box):
 
             self._scale.render(
                 cfg.min_kelvin, cfg.max_kelvin, self._display_kelvin(status, cfg)
+            )
+
+            # The global manual override lives on connector "", so it shows up
+            # identically on every display -- reading the first is enough.
+            first = status.displays[0] if status is not None and status.displays else None
+            self._manual_group.set_description(
+                manual_description(
+                    first is not None and first.manual_k is not None,
+                    None if first is None else first.manual_expires_in_s,
+                )
             )
         finally:
             self._rendering = False
@@ -333,8 +357,9 @@ class ScheduleView(Gtk.Box):
         self._scale.commit_explicit(float(kelvin))
 
     def _commit_manual_temp(self, kelvin: float) -> None:
+        duration_min = DURATION_MINUTES[self._duration_row.get_selected()]
         try:
-            self._client.set_manual_temp("", round(kelvin), 0)
+            self._client.set_manual_temp("", round(kelvin), duration_min)
         except Exception as exc:
             log.exception("set_manual_temp failed")
             self._state.set_error(str(exc))
