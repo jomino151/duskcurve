@@ -686,6 +686,66 @@ def test_reenabling_a_display_is_instant():
     assert _k(orch) == 2700
 
 
+def test_reenabling_mid_transition_rejoins_the_sibling_not_the_endpoint():
+    """Disabling a display mid-transition and re-enabling it must put it back
+    where its still-transitioning siblings are, not at the transition's
+    endpoint. Otherwise the two displays sit at different temperatures for the
+    rest of the transition."""
+    cfg = replace(default_config(), transition_seconds=60.0)
+    clock = FakeClock(_dt(13, 0))  # noon: both connectors settle at 6500
+    be, _t, orch = _new(cfg, clock)
+    orch.tick()
+    assert _k(orch, "DP-2") == 6500
+    assert _k(orch, "HDMI-1") == 6500
+
+    # Start a slow schedule-paced transition on both displays at once.
+    warm = replace(
+        cfg,
+        displays={
+            c: DisplayConfig(override_kind="fixed", override_value=2700)
+            for c in ("DP-2", "HDMI-1")
+        },
+    )
+    orch.set_config(warm)
+    for _ in range(3):
+        clock.advance(2)
+        orch.tick()
+    assert _k(orch, "DP-2") == _k(orch, "HDMI-1")
+    assert 2700 < _k(orch, "DP-2") < 6500  # genuinely mid-transition
+
+    # Disable DP-2: instant to neutral, sibling keeps easing.
+    off = replace(
+        warm,
+        displays={
+            **warm.displays,
+            "DP-2": DisplayConfig(
+                enabled=False, override_kind="fixed", override_value=2700
+            ),
+        },
+    )
+    orch.set_config(off)
+    clock.advance(2)
+    orch.tick()
+    assert _k(orch, "DP-2") == round(NEUTRAL_KELVIN)
+
+    # Re-enable it: instant, but to wherever the sibling is right now.
+    orch.set_config(warm)
+    clock.advance(2)
+    orch.tick()
+    assert _k(orch, "DP-2") == _k(orch, "HDMI-1")
+
+    # ...and they stay together for the rest of the transition.
+    for _ in range(6):
+        clock.advance(2)
+        orch.tick()
+        assert _k(orch, "DP-2") == _k(orch, "HDMI-1")
+
+    clock.advance(60)  # well past the 60s time constant: both converge
+    orch.tick()
+    assert _k(orch, "DP-2") == 2700
+    assert _k(orch, "HDMI-1") == 2700
+
+
 def test_manual_set_converges_at_manual_pace_not_schedule_or_instant():
     cfg = replace(default_config(), transition_seconds=20.0, manual_transition_seconds=3.0)
     clock = FakeClock(_dt(13, 0))  # noon: curve wants 6500

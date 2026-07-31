@@ -60,9 +60,6 @@ class Orchestrator:
         # connector -> (kelvin, expiry); connector "" applies to all connectors.
         self._manual: dict[str, tuple[float, datetime | None]] = {}
         self._window: WindowState | None = None
-        # Track the previous per-display config so set_config can detect an
-        # enabled flip (a deliberate on/off action) per connector.
-        self._prev_displays: dict[str, DisplayConfig] = dict(config.displays)
         self._prev_actions: dict[str, RuleAction] = {}
         # Every temperature change eases toward its target, but the pace
         # depends on WHAT caused the change, not just that it changed:
@@ -76,20 +73,10 @@ class Orchestrator:
         self._pacing: dict[str, str] = {}
 
     def set_config(self, config: Config) -> None:
-        # A display's enabled flag flipping is a deliberate on/off action, so
-        # it gets instant ("toggle") pacing -- same reasoning as set_paused
-        # below. Detect it per connector by diffing against the previously
-        # known per-display config; a connector absent from a dict falls back
-        # to DisplayConfig()'s default (enabled=True).
-        old_displays = self._prev_displays
-        new_displays = config.displays
-        for connector in set(old_displays) | set(new_displays):
-            old_enabled = old_displays.get(connector, DisplayConfig()).enabled
-            new_enabled = new_displays.get(connector, DisplayConfig()).enabled
-            if old_enabled != new_enabled:
-                self._pacing[connector] = "toggle"
-        self._prev_displays = dict(new_displays)
-
+        # Note: a display's enabled flag needs no pacing entry. `enabled` is an
+        # output mask applied after easing (see tick), not a temperature
+        # target, so both directions are already instant and the display's
+        # eased position keeps tracking the schedule while it is off.
         self._config = config
         self._curve = self._build_curve(config)
 
@@ -190,7 +177,8 @@ class Orchestrator:
                 self._pacing[connector] = "schedule"
 
             self._current_k[connector] = current_k
-            red, green, blue = build_ramp(display.ramp_size, current_k)
+            applied_k = self._apply_enabled_mask(connector, current_k)
+            red, green, blue = build_ramp(display.ramp_size, applied_k)
             self._backend.apply_ramp(connector, red, green, blue)
 
         self._last_tick_dt = now
@@ -213,7 +201,11 @@ class Orchestrator:
         for display in displays:
             connector = display.connector
             dc = self._config.displays.get(connector, DisplayConfig())
-            current_k = self._current_k.get(connector, NEUTRAL_KELVIN)
+            # Report what the display is actually showing, not its masked-off
+            # eased position -- the GUI renders this as the live temperature.
+            current_k = self._apply_enabled_mask(
+                connector, self._current_k.get(connector, NEUTRAL_KELVIN)
+            )
             action = actions.get(connector, NO_ACTION)
             per_display.append(
                 {
@@ -271,6 +263,19 @@ class Orchestrator:
         bedtime = datetime(day.year, day.month, day.day, bed_h, bed_m, tzinfo=tz)
         return DayContext(sunrise=ev.sunrise, sunset=ev.sunset, wake=wake, bedtime=bedtime)
 
+    def _apply_enabled_mask(self, connector: str, kelvin: float) -> float:
+        """Blank a disabled display to neutral without disturbing its easing.
+
+        `enabled` is a mask over the output, deliberately NOT part of the
+        eased target: a disabled display's `_current_k` keeps tracking the
+        schedule as if it were on. That is what makes re-enabling mid-
+        transition rejoin the other displays where they are now, instead of
+        snapping to the transition's endpoint and sitting at a different
+        temperature until they catch up.
+        """
+        dc = self._config.displays.get(connector, DisplayConfig())
+        return kelvin if dc.enabled else NEUTRAL_KELVIN
+
     def _manual_kelvin(self, connector: str, now: datetime) -> float | None:
         for key in (connector, ""):
             entry = self._manual.get(key)
@@ -288,9 +293,9 @@ class Orchestrator:
         if self._paused:
             return NEUTRAL_KELVIN
 
+        # dc.enabled is deliberately not consulted here -- it masks the output
+        # after easing, see _apply_enabled_mask.
         dc = self._config.displays.get(connector, DisplayConfig())
-        if not dc.enabled:
-            return NEUTRAL_KELVIN
 
         manual = self._manual_kelvin(connector, now)
         if manual is not None:
