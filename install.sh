@@ -98,3 +98,66 @@ done
 log "Linked ${CONSOLE_SCRIPTS[*]} into $FLUXMAX_BIN_DIR"
 
 state_set install_mode "$INSTALL_MODE"
+
+# --- 5. record Night Light ---------------------------------------------------
+# Must happen before the daemon is ever started: the daemon turns Night Light
+# off as its first act, so recording afterwards would capture flux-max's own
+# doing. On a re-install an existing value is kept for the same reason.
+if ! state_get night_light_was_enabled >/dev/null; then
+    current="$(gsettings get "$NIGHT_LIGHT_SCHEMA" "$NIGHT_LIGHT_KEY" 2>/dev/null || echo false)"
+    state_set night_light_was_enabled "$current"
+    log "Recorded Night Light = $current for uninstall"
+fi
+
+# --- 6. icon + desktop file --------------------------------------------------
+mkdir -p "$FLUXMAX_ICON_DIR" "$FLUXMAX_APP_DIR"
+install -m 0644 "$REPO_DIR/data/icons/$ICON_NAME" "$FLUXMAX_ICON_DIR/$ICON_NAME"
+install -m 0644 "$REPO_DIR/data/$DESKTOP_FILE" "$FLUXMAX_APP_DIR/$DESKTOP_FILE"
+# Both refreshers are optional: a stale cache costs an icon, not an install.
+have gtk-update-icon-cache && gtk-update-icon-cache -qtf "$FLUXMAX_DATA_HOME/icons/hicolor" || true
+have update-desktop-database && update-desktop-database -q "$FLUXMAX_APP_DIR" || true
+log "Installed the icon and desktop entry"
+
+# --- 7. extension ------------------------------------------------------------
+mkdir -p "$FLUXMAX_EXT_DIR"
+ext_target="$FLUXMAX_EXT_DIR/$EXT_UUID"
+# Remove whatever is there first: switching between --dev and the default must
+# not leave a copied directory shadowing the symlink the user just asked for.
+rm -rf "$ext_target"
+if [ "$INSTALL_MODE" = "dev" ]; then
+    ln -sfn "$REPO_DIR/extension/$EXT_UUID" "$ext_target"
+else
+    cp -r "$REPO_DIR/extension/$EXT_UUID" "$ext_target"
+fi
+gnome-extensions enable "$EXT_UUID" || warn "could not enable the extension yet -- run" \
+    "'gnome-extensions enable $EXT_UUID' after logging back in"
+log "Installed the GNOME Shell extension"
+
+# --- 8. systemd unit ---------------------------------------------------------
+mkdir -p "$FLUXMAX_UNIT_DIR"
+install -m 0644 "$REPO_DIR/data/$UNIT_NAME" "$FLUXMAX_UNIT_DIR/$UNIT_NAME"
+systemctl --user daemon-reload
+if [ "$START_SERVICE" = "1" ]; then
+    systemctl --user enable --now "$UNIT_NAME"
+    log "Daemon enabled and started"
+else
+    log "Unit installed but not started (--no-start)"
+fi
+
+# --- 9. next steps -----------------------------------------------------------
+cat <<EOF
+
+flux-max is installed.
+
+  1. LOG OUT and back in. On Wayland, GNOME Shell cannot be restarted in
+     place ('Alt+F2 r' does not work), so the extension will not load until
+     you do. Until then window rules are inert by design -- the daemon still
+     runs the schedule on every display.
+  2. Set your location and wake/bedtime in:
+       $FLUXMAX_CONFIG_FILE
+     or launch the GUI with: fluxmax-gui
+  3. Check on the daemon any time with:
+       systemctl --user status $UNIT_NAME
+
+To remove everything again: ./uninstall.sh
+EOF

@@ -121,3 +121,108 @@ def test_help_exits_zero_without_installing_anything(sandbox):
 def test_rejects_an_unknown_flag(sandbox):
     proc = sandbox.run("install.sh", "--wat", expect_ok=False)
     assert proc.returncode != 0
+
+
+def test_records_night_light_before_starting_anything(sandbox):
+    """The daemon turns Night Light off as its first act, so a value recorded
+    after `systemctl enable --now` would record flux-max's own handiwork."""
+    sandbox.set_gsettings(*NIGHT_LIGHT.split(), "true")
+    sandbox.run("install.sh")
+    state = (sandbox.data / "fluxmax" / "install-state").read_text()
+    assert "night_light_was_enabled=true" in state
+
+    log = sandbox.stub_log()
+    first_get = next(i for i, c in enumerate(log) if c.startswith("gsettings get"))
+    first_start = next(i for i, c in enumerate(log) if "enable" in c and c.startswith("systemctl"))
+    assert first_get < first_start
+
+
+def test_records_night_light_false_when_it_was_off(sandbox):
+    sandbox.set_gsettings(*NIGHT_LIGHT.split(), "false")
+    sandbox.run("install.sh", "--no-start")
+    assert "night_light_was_enabled=false" in (
+        sandbox.data / "fluxmax" / "install-state"
+    ).read_text()
+
+
+def test_reinstall_does_not_overwrite_the_recorded_night_light_value(sandbox):
+    """By the second run the daemon has already set it to false. Re-recording
+    would destroy the only copy of the user's original setting."""
+    sandbox.set_gsettings(*NIGHT_LIGHT.split(), "true")
+    sandbox.run("install.sh", "--no-start")
+    sandbox.set_gsettings(*NIGHT_LIGHT.split(), "false")   # as the daemon would leave it
+    sandbox.run("install.sh", "--no-start")
+    assert "night_light_was_enabled=true" in (
+        sandbox.data / "fluxmax" / "install-state"
+    ).read_text()
+
+
+def test_installs_the_icon_and_desktop_file(sandbox):
+    sandbox.run("install.sh", "--no-start")
+    icon = sandbox.data / "icons" / "hicolor" / "scalable" / "apps" / "org.fluxmax.gui.svg"
+    desktop = sandbox.data / "applications" / "org.fluxmax.gui.desktop"
+    assert icon.is_file()
+    assert desktop.is_file()
+    assert "Exec=fluxmax-gui" in desktop.read_text()
+
+
+def test_copies_the_extension_by_default(sandbox):
+    sandbox.run("install.sh", "--no-start")
+    ext = sandbox.data / "gnome-shell" / "extensions" / "focused-window@fluxmax"
+    assert ext.is_dir()
+    assert not ext.is_symlink()
+    assert (ext / "metadata.json").is_file()
+
+
+def test_dev_symlinks_the_extension(sandbox):
+    sandbox.run("install.sh", "--dev", "--no-start")
+    ext = sandbox.data / "gnome-shell" / "extensions" / "focused-window@fluxmax"
+    assert ext.is_symlink()
+
+
+def test_reinstall_switching_from_copy_to_dev_replaces_the_extension(sandbox):
+    """Leaving a copied directory in place would silently win over the symlink
+    the user just asked for."""
+    sandbox.run("install.sh", "--no-start")
+    sandbox.run("install.sh", "--dev", "--no-start")
+    ext = sandbox.data / "gnome-shell" / "extensions" / "focused-window@fluxmax"
+    assert ext.is_symlink()
+
+
+def test_enables_the_extension(sandbox):
+    sandbox.run("install.sh", "--no-start")
+    assert any("enable focused-window@fluxmax" in c for c in sandbox.called("gnome-extensions"))
+
+
+def test_installs_reloads_enables_and_starts_the_unit(sandbox):
+    sandbox.run("install.sh")
+    assert (sandbox.config / "systemd" / "user" / "fluxmax-daemon.service").is_file()
+    calls = sandbox.called("systemctl")
+    assert any("daemon-reload" in c for c in calls)
+    assert any("enable --now fluxmax-daemon.service" in c for c in calls)
+    reload_at = next(i for i, c in enumerate(calls) if "daemon-reload" in c)
+    enable_at = next(i for i, c in enumerate(calls) if "enable" in c)
+    assert reload_at < enable_at
+
+
+def test_no_start_installs_the_unit_but_does_not_enable_it(sandbox):
+    sandbox.run("install.sh", "--no-start")
+    assert (sandbox.config / "systemd" / "user" / "fluxmax-daemon.service").is_file()
+    assert not any("enable" in c for c in sandbox.called("systemctl"))
+
+
+def test_closing_message_names_the_logout_the_config_and_the_rules_caveat(sandbox):
+    """Each of these is a documented way a correct first install looks broken."""
+    out = sandbox.run("install.sh").stdout
+    assert "log out" in out.lower()
+    assert "config.toml" in out
+    assert "rules" in out.lower()
+
+
+def test_a_full_install_is_idempotent(sandbox):
+    first = sandbox.run("install.sh")
+    second = sandbox.run("install.sh")
+    assert first.returncode == 0 and second.returncode == 0
+    ext = sandbox.data / "gnome-shell" / "extensions" / "focused-window@fluxmax"
+    assert (ext / "metadata.json").is_file()
+    assert (sandbox.config / "systemd" / "user" / "fluxmax-daemon.service").is_file()
