@@ -63,6 +63,12 @@ _MIN_WIDTH = 360
 _MIN_HEIGHT = 480
 
 
+_FORMATTING_BANNER_TEXT = (
+    "flux-max now owns this config file's formatting -- hand-written comments "
+    "and layout will not survive the next save."
+)
+
+
 def _scrolled(child: Gtk.Widget) -> Gtk.ScrolledWindow:
     """Wrap `child` so a too-short window scrolls instead of clipping it.
 
@@ -75,11 +81,6 @@ def _scrolled(child: Gtk.Widget) -> Gtk.ScrolledWindow:
     scrolled.set_vexpand(True)
     scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
     return scrolled
-
-_FORMATTING_BANNER_TEXT = (
-    "flux-max now owns this config file's formatting -- hand-written comments "
-    "and layout will not survive the next save."
-)
 
 
 class FluxMaxWindow(Adw.ApplicationWindow):

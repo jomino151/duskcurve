@@ -41,7 +41,7 @@ from fluxmax.gui.client import DaemonClient  # noqa: E402
 from fluxmax.gui.curve_editor import CurveEditor  # noqa: E402
 from fluxmax.gui.duration import (  # noqa: E402
     DURATION_LABELS,
-    DURATION_MINUTES,
+    duration_for_index,
     manual_description,
 )
 from fluxmax.gui.editing import effective_keypoints, fork_to_custom, with_keypoints  # noqa: E402
@@ -178,6 +178,7 @@ class ScheduleView(Gtk.Box):
         self._duration_row = Adw.ComboRow(
             title="Duration", model=Gtk.StringList.new(list(DURATION_LABELS))
         )
+        self._duration_row.connect("notify::selected", self._on_duration_changed)
         manual_group.add(self._duration_row)
 
         scale_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -246,6 +247,9 @@ class ScheduleView(Gtk.Box):
 
             # The global manual override lives on connector "", so it shows up
             # identically on every display -- reading the first is enough.
+            # A *per-display* override on displays[0] is reported the same way
+            # and will also light this description up; the Resume button and
+            # _display_kelvin have always had that shape, so this follows it.
             first = status.displays[0] if status is not None and status.displays else None
             self._manual_group.set_description(
                 manual_description(
@@ -334,7 +338,13 @@ class ScheduleView(Gtk.Box):
             row.set_text(cfg.wake)
             return
         hour, minute = parsed
-        self._state.apply_config(dataclasses.replace(cfg, wake=f"{hour:02d}:{minute:02d}"))
+        wake = f"{hour:02d}:{minute:02d}"
+        # Focus-leave calls this unconditionally, and pressing Enter fires
+        # ::apply *and then* focus-leave, so without this guard merely tabbing
+        # through the field writes config.toml and broadcasts StatusChanged.
+        if wake == cfg.wake:
+            return
+        self._state.apply_config(dataclasses.replace(cfg, wake=wake))
 
     def _on_bedtime_apply(self, row: Adw.EntryRow) -> None:
         if self._rendering:
@@ -347,7 +357,10 @@ class ScheduleView(Gtk.Box):
             row.set_text(cfg.bedtime)
             return
         hour, minute = parsed
-        self._state.apply_config(dataclasses.replace(cfg, bedtime=f"{hour:02d}:{minute:02d}"))
+        bedtime = f"{hour:02d}:{minute:02d}"
+        if bedtime == cfg.bedtime:  # see _on_wake_apply
+            return
+        self._state.apply_config(dataclasses.replace(cfg, bedtime=bedtime))
 
     # -- manual temperature --------------------------------------------------
 
@@ -356,8 +369,22 @@ class ScheduleView(Gtk.Box):
             return
         self._scale.commit_explicit(float(kelvin))
 
+    def _on_duration_changed(self, _row: Adw.ComboRow, _pspec: GObject.ParamSpec) -> None:
+        # Re-arm an override that is already running. Without this, changing
+        # only the duration sends nothing: the scale commits on value-changed,
+        # so "2700 K until cleared, then pick 30 min" would silently stay
+        # permanent. With no override active there is nothing to re-arm, and
+        # the new selection simply applies to the next commit.
+        if self._rendering:
+            return
+        status = self._state.status
+        first = status.displays[0] if status is not None and status.displays else None
+        if first is None or first.manual_k is None:
+            return
+        self._commit_manual_temp(float(first.manual_k))
+
     def _commit_manual_temp(self, kelvin: float) -> None:
-        duration_min = DURATION_MINUTES[self._duration_row.get_selected()]
+        duration_min = duration_for_index(self._duration_row.get_selected())
         try:
             self._client.set_manual_temp("", round(kelvin), duration_min)
         except Exception as exc:

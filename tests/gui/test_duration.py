@@ -4,9 +4,25 @@ from fluxmax.gui.duration import (
     DURATION_CHOICES,
     DURATION_LABELS,
     DURATION_MINUTES,
+    duration_for_index,
     format_remaining,
     manual_description,
 )
+
+
+def test_duration_for_index_maps_every_valid_selection():
+    for i, minutes in enumerate(DURATION_MINUTES):
+        assert duration_for_index(i) == minutes
+
+
+def test_duration_for_index_survives_no_selection():
+    """Adw.ComboRow.get_selected() returns Gtk.INVALID_LIST_POSITION
+    (0xFFFFFFFF) when nothing is selected. Indexing with it would raise
+    IndexError inside a GTK signal handler, escaping the view's error
+    handling entirely -- fall back to the behaviour-preserving 0 instead."""
+    assert duration_for_index(0xFFFFFFFF) == 0
+    assert duration_for_index(len(DURATION_MINUTES)) == 0
+    assert duration_for_index(-1) == 0
 
 
 def test_until_cleared_is_the_first_choice_so_it_is_the_default():

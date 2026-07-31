@@ -28,6 +28,20 @@ _SECONDS_PER_MINUTE = 60
 _SECONDS_PER_HOUR = 3600
 
 
+def duration_for_index(index: int) -> int:
+    """Map a ComboRow selection to `duration_min`, tolerating "no selection".
+
+    `Adw.ComboRow.get_selected()` returns `Gtk.INVALID_LIST_POSITION`
+    (0xFFFFFFFF) when nothing is selected, so indexing the tuple with it
+    raises `IndexError` -- inside a GTK signal handler, where it escapes
+    instead of reaching the view's error toast. Anything out of range falls
+    back to 0, the behaviour-preserving "until cleared" choice.
+    """
+    if 0 <= index < len(DURATION_MINUTES):
+        return DURATION_MINUTES[index]
+    return 0
+
+
 def format_remaining(seconds: int) -> str:
     """Render seconds-until-expiry at minute granularity.
 
