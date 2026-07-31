@@ -141,13 +141,25 @@ log "Installed the icon and desktop entry"
 # --- 7. extension ------------------------------------------------------------
 mkdir -p "$FLUXMAX_EXT_DIR"
 ext_target="$FLUXMAX_EXT_DIR/$EXT_UUID"
-# Remove whatever is there first: switching between --dev and the default must
-# not leave a copied directory shadowing the symlink the user just asked for.
-rm -rf "$ext_target"
+# Replace the target only when the KIND of thing there is wrong -- a symlink
+# where we want a copied directory, or the reverse. Switching between --dev and
+# the default must not leave a copy shadowing the symlink the user asked for;
+# but removing a target that is already the right kind would pull the directory
+# out from under a running GNOME Shell, which disables the extension and needs
+# a logout plus a manual re-enable to undo. Keying off what is on disk rather
+# than the recorded install_mode also self-heals a missing state file.
 if [ "$INSTALL_MODE" = "dev" ]; then
+    if [ -e "$ext_target" ] && [ ! -L "$ext_target" ]; then
+        rm -rf "$ext_target"
+    fi
     ln -sfn "$REPO_DIR/extension/$EXT_UUID" "$ext_target"
 else
-    cp -r "$REPO_DIR/extension/$EXT_UUID" "$ext_target"
+    if [ -L "$ext_target" ]; then
+        rm -f "$ext_target"
+    fi
+    mkdir -p "$ext_target"
+    # Copy the contents, not the directory: the directory itself must survive.
+    cp -r "$REPO_DIR/extension/$EXT_UUID/." "$ext_target/"
 fi
 gnome-extensions enable "$EXT_UUID" || warn "could not enable the extension yet -- run" \
     "'gnome-extensions enable $EXT_UUID' after logging back in"
@@ -158,8 +170,23 @@ mkdir -p "$FLUXMAX_UNIT_DIR"
 install -m 0644 "$REPO_DIR/data/$UNIT_NAME" "$FLUXMAX_UNIT_DIR/$UNIT_NAME"
 systemctl --user daemon-reload || warn "systemctl daemon-reload failed; the unit may not" \
     "be picked up until you log out and back in."
+# Capture this before `enable --now`, which would make a stopped unit look as
+# though it had been running all along.
+daemon_was_active=0
+if systemctl --user is-active --quiet "$UNIT_NAME" 2>/dev/null; then
+    daemon_was_active=1
+fi
 if [ "$START_SERVICE" = "1" ]; then
     if systemctl --user enable --now "$UNIT_NAME"; then
+        # `enable --now` starts a stopped unit but never restarts a running
+        # one, so on an upgrade the old process would keep serving the old code
+        # until the next reboot. Only restart what was already up: doing it
+        # unconditionally would reset the ramps for nothing on a first install.
+        if [ "$daemon_was_active" = "1" ]; then
+            systemctl --user restart "$UNIT_NAME" \
+                || warn "could not restart the daemon, so it is still running the previous" \
+                        "version. Restart it with 'systemctl --user restart $UNIT_NAME'."
+        fi
         log "Daemon enabled and started"
     else
         warn "the daemon did not start; check 'systemctl --user status $UNIT_NAME'"

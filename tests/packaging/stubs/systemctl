@@ -4,4 +4,12 @@ if [ "${STUB_SYSTEMCTL_FAIL:-0}" = "1" ]; then
     echo "systemctl: failed" >&2
     exit 1
 fi
+# `is-active` is a query, not an action: it must be able to answer "no" so a
+# test can tell a fresh install from an upgrade of a running daemon.
+for arg in "$@"; do
+    if [ "$arg" = "is-active" ] && [ "${STUB_SYSTEMCTL_INACTIVE:-0}" = "1" ]; then
+        echo "inactive"
+        exit 3
+    fi
+done
 exit 0

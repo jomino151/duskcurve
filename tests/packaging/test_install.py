@@ -277,3 +277,49 @@ def test_a_full_install_is_idempotent(sandbox):
     ext = sandbox.data / "gnome-shell" / "extensions" / "focused-window@fluxmax"
     assert (ext / "metadata.json").is_file()
     assert (sandbox.config / "systemd" / "user" / "fluxmax-daemon.service").is_file()
+
+
+def test_same_mode_reinstall_does_not_tear_down_the_extension_directory(sandbox):
+    """Re-running the installer is the documented upgrade path, so it must not
+    disturb a working extension. Removing and recreating the directory pulls it
+    out from under a running GNOME Shell, which moves the extension to the
+    disabled list -- recoverable only by a logout plus a manual re-enable.
+    A stable inode is what "was not torn down and recreated" looks like."""
+    ext = sandbox.data / "gnome-shell" / "extensions" / "focused-window@fluxmax"
+    sandbox.run("install.sh", "--no-start")
+    before = ext.stat().st_ino
+    sandbox.run("install.sh", "--no-start")
+    assert ext.is_dir()
+    assert not ext.is_symlink()
+    assert ext.stat().st_ino == before
+    assert (ext / "metadata.json").is_file()
+
+
+def test_switching_from_dev_back_to_copy_replaces_the_symlink(sandbox):
+    """The other direction of the mode switch: a leftover symlink must not
+    survive as the answer to a copying install."""
+    sandbox.run("install.sh", "--dev", "--no-start")
+    ext = sandbox.data / "gnome-shell" / "extensions" / "focused-window@fluxmax"
+    assert ext.is_symlink()
+    sandbox.run("install.sh", "--no-start")
+    assert ext.is_dir()
+    assert not ext.is_symlink()
+    assert (ext / "metadata.json").is_file()
+
+
+def test_reinstall_restarts_a_daemon_that_was_already_running(sandbox):
+    """`systemctl enable --now` starts a stopped unit but never restarts a
+    running one, so without an explicit restart an upgrade leaves the old
+    daemon process serving the old code until the next reboot."""
+    sandbox.run("install.sh")
+    sandbox.stub_log_path.write_text("")
+    sandbox.run("install.sh")
+    assert any("restart fluxmax-daemon.service" in c for c in sandbox.called("systemctl"))
+
+
+def test_fresh_install_does_not_restart_the_daemon_it_just_started(sandbox):
+    """`enable --now` already started it; restarting immediately would reset
+    the ramps for nothing on every first install."""
+    sandbox.env["STUB_SYSTEMCTL_INACTIVE"] = "1"
+    sandbox.run("install.sh")
+    assert not any("restart fluxmax-daemon.service" in c for c in sandbox.called("systemctl"))
