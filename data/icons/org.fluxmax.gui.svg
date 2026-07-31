@@ -4,8 +4,11 @@
       <stop offset="0" stop-color="#ffcf6b"/>
       <stop offset="1" stop-color="#f2704a"/>
     </linearGradient>
+    <mask id="bite">
+      <rect x="0" y="0" width="64" height="64" fill="#fff"/>
+      <circle cx="41" cy="20" r="13" fill="#000"/>
+    </mask>
   </defs>
-  <circle cx="32" cy="32" r="19" fill="url(#warm)"/>
   <g fill="#f2704a">
     <rect x="30" y="2" width="4" height="9" rx="2"/>
     <rect x="30" y="53" width="4" height="9" rx="2"/>
@@ -16,5 +19,8 @@
     <rect x="50.4" y="10.9" width="4" height="9" rx="2" transform="rotate(45 52.4 15.4)"/>
     <rect x="9.6" y="44.1" width="4" height="9" rx="2" transform="rotate(45 11.6 48.6)"/>
   </g>
-  <path d="M51 32a19 19 0 0 1-27.5 17 22 22 0 0 0 0-34A19 19 0 0 1 51 32z" fill="#2b3a67"/>
+  <circle cx="32" cy="32" r="19" fill="url(#warm)"/>
+  <g mask="url(#bite)">
+    <circle cx="46" cy="25" r="13" fill="#2b3a67"/>
+  </g>
 </svg>
