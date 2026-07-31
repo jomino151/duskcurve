@@ -84,12 +84,16 @@ fi
 
 # --- 4. console scripts ------------------------------------------------------
 mkdir -p "$FLUXMAX_BIN_DIR"
+# Scan all targets before linking any of them, so a collision aborts with
+# nothing created rather than leaving a half-linked ~/.local/bin.
 for script in "${CONSOLE_SCRIPTS[@]}"; do
     target="$FLUXMAX_BIN_DIR/$script"
     if [ -e "$target" ] && [ ! -L "$target" ]; then
         die "$target exists and is not a symlink -- refusing to overwrite it"
     fi
-    ln -sfn "$FLUXMAX_VENV/bin/$script" "$target"
+done
+for script in "${CONSOLE_SCRIPTS[@]}"; do
+    ln -sfn "$FLUXMAX_VENV/bin/$script" "$FLUXMAX_BIN_DIR/$script"
 done
 log "Linked ${CONSOLE_SCRIPTS[*]} into $FLUXMAX_BIN_DIR"
 

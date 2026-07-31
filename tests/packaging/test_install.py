@@ -57,6 +57,19 @@ def test_refuses_to_clobber_a_real_file_in_local_bin(sandbox):
     assert (sandbox.bin / "fluxmax-gui").read_text() == "#!/bin/sh\necho not ours\n"
 
 
+def test_a_refused_clobber_leaves_no_partial_symlink_set(sandbox):
+    """Fail closed: the scan runs before any linking, so an aborted install
+    creates nothing rather than a half-linked ~/.local/bin. fluxmax-daemon
+    sorts before fluxmax-gui in CONSOLE_SCRIPTS, so it is the one that would
+    have been created by a loop that links as it goes."""
+    sandbox.bin.mkdir(parents=True, exist_ok=True)
+    (sandbox.bin / "fluxmax-gui").write_text("#!/bin/sh\necho not ours\n")
+    proc = sandbox.run("install.sh", "--no-start", expect_ok=False)
+    assert proc.returncode != 0
+    assert not (sandbox.bin / "fluxmax-daemon").exists()
+    assert not (sandbox.bin / "fluxmax-apply").exists()
+
+
 def test_fails_fast_when_the_system_python_has_no_gi(sandbox):
     """Without gi nothing works, and the failure would otherwise surface much
     later as an import error inside the daemon under systemd."""
