@@ -100,7 +100,11 @@ This is idempotent — re-running it is the supported way to upgrade. It:
 - installs the icon, desktop entry, the `focused-window@fluxmax` GNOME Shell extension, and the
   `fluxmax-daemon` systemd user unit;
 - records your current Night Light setting (so `./uninstall.sh` can restore it) and enables and
-  starts the daemon.
+  starts the daemon — restarting it if it was already running, so an upgrade actually takes
+  effect rather than leaving the previous version in memory.
+
+Re-running leaves an already-correct extension in place rather than reinstalling it, so an
+upgrade will not disturb the running GNOME Shell or your enabled extensions.
 
 Flags:
 
@@ -195,3 +199,14 @@ A menu button (☰) in the header opens **Preferences**, where you can set the l
 - **Tick interval (s)**: How often the daemon re-evaluates the schedule (default 2 s).
 
 Pausing and enabling/disabling a display are not in this list: they are hardcoded instant, since a binary on/off decision has no useful in-between rate to configure.
+
+## License and credits
+
+GPL-3.0-or-later; see [LICENSE](LICENSE).
+
+The blackbody colour table in `fluxmax/color/blackbody_table.py` is taken from
+[redshift](https://github.com/jonls/redshift)'s `src/colorramp.c` (`blackbody_color`), by Jon
+Lund Steffensen, also GPL-3.0. flux-max exists because redshift and its successors cannot work
+on GNOME/Wayland — Mutter implements neither X11 RANDR gamma nor the wlroots gamma protocols —
+but the colour science is redshift's, and it is why the temperatures here look right rather than
+merely blue-ish.
