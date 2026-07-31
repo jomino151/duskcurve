@@ -1,3 +1,7 @@
 #!/usr/bin/env bash
 echo "gnome-extensions $*" >> "$STUB_LOG"
+if [ "${STUB_GNOME_EXTENSIONS_FAIL:-0}" = "1" ]; then
+    echo "gnome-extensions: failed" >&2
+    exit 1
+fi
 exit 0
