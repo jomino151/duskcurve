@@ -746,6 +746,39 @@ def test_reenabling_mid_transition_rejoins_the_sibling_not_the_endpoint():
     assert _k(orch, "HDMI-1") == 2700
 
 
+def test_backwards_clock_step_mid_transition_holds_instead_of_diverging():
+    """A wall-clock step backwards (NTP correction, resume from suspend) gives
+    a negative dt. Easing by a negative factor moves *away* from the target and
+    straight through mired's singularity at 0, producing negative Kelvin and a
+    garbage ramp. A tick that goes backwards in time must simply hold."""
+    cfg = replace(default_config(), transition_seconds=20.0)
+    clock = FakeClock(_dt(13, 0))
+    be, _t, orch = _new(cfg, clock)
+    orch.tick()
+
+    orch.set_config(
+        replace(
+            cfg,
+            displays={
+                c: DisplayConfig(override_kind="fixed", override_value=2700)
+                for c in ("DP-2", "HDMI-1")
+            },
+        )
+    )
+    clock.advance(2)
+    orch.tick()
+    mid = _k(orch)
+    assert 2700 < mid < 6500
+
+    clock.advance(-30)  # the clock steps backwards mid-transition
+    orch.tick()
+    assert _k(orch) == mid  # held, not flung past the target
+
+    clock.advance(2)  # and time moving forward again resumes the transition
+    orch.tick()
+    assert 2700 < _k(orch) < mid
+
+
 def test_manual_set_converges_at_manual_pace_not_schedule_or_instant():
     cfg = replace(default_config(), transition_seconds=20.0, manual_transition_seconds=3.0)
     clock = FakeClock(_dt(13, 0))  # noon: curve wants 6500

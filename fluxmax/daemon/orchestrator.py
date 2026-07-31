@@ -163,7 +163,13 @@ class Orchestrator:
                 "rule": self._config.rule_transition_seconds,
                 "toggle": 0.0,
             }[category]
-            factor = 1.0 if ts <= 0 else min(1.0, dt / ts)
+            # Clamped at both ends. The upper end caps a long tick at "arrive".
+            # The lower end matters when the wall clock steps BACKWARDS (an NTP
+            # correction, resume from suspend): dt goes negative, and an
+            # unclamped negative factor eases away from the target and through
+            # mired's singularity at 0, yielding negative Kelvin. A tick that
+            # went backwards in time should simply hold.
+            factor = 1.0 if ts <= 0 else max(0.0, min(1.0, dt / ts))
 
             if connector not in self._current_k:
                 current_k = target_k
