@@ -42,9 +42,11 @@ fi
 # Before step 6 deletes the venv -- this is the only reason it is this early.
 # Best-effort: displays may have changed since install.
 if [ -x "$FLUXMAX_VENV/bin/fluxmax-apply" ]; then
-    "$FLUXMAX_VENV/bin/fluxmax-apply" --temp "$NEUTRAL_KELVIN" >/dev/null 2>&1 \
-        || warn "could not reset the gamma ramps; log out and back in to clear them"
-    log "Reset the displays to ${NEUTRAL_KELVIN}K"
+    if "$FLUXMAX_VENV/bin/fluxmax-apply" --temp "$NEUTRAL_KELVIN" >/dev/null 2>&1; then
+        log "Reset the displays to ${NEUTRAL_KELVIN}K"
+    else
+        warn "could not reset the gamma ramps; log out and back in to clear them"
+    fi
 fi
 
 # --- 3. restore Night Light --------------------------------------------------

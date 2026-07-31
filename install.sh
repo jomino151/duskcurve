@@ -45,10 +45,30 @@ case ":$PATH:" in
             "fluxmax-gui command and the daemon unit will not resolve." ;;
 esac
 
+old_pip_install=0
 if "$FLUXMAX_PYTHON" -m pip show fluxmax >/dev/null 2>&1; then
+    old_pip_install=1
     warn "an older 'pip install --user' copy of flux-max is installed and will shadow" \
          "this one. Remove it with: $FLUXMAX_PYTHON -m pip uninstall fluxmax --break-system-packages"
 fi
+
+# Scan all console-script targets before doing any real work: creating the
+# venv and running pip install takes 20+ seconds, and none of it is needed
+# if we are just going to refuse to link over a real file at the end.
+mkdir -p "$FLUXMAX_BIN_DIR"
+for script in "${CONSOLE_SCRIPTS[@]}"; do
+    target="$FLUXMAX_BIN_DIR/$script"
+    if [ -e "$target" ] && [ ! -L "$target" ]; then
+        if [ "$old_pip_install" = "1" ]; then
+            die "$target is a regular file left by an older 'pip install --user' copy of" \
+                "flux-max. Remove it first:" \
+                "  $FLUXMAX_PYTHON -m pip uninstall fluxmax --break-system-packages" \
+                "then re-run ./install.sh."
+        fi
+        die "$target exists and is not a symlink -- refusing to overwrite it." \
+            "Move it aside and re-run ./install.sh."
+    fi
+done
 
 # --- 2. the cairo bridge -----------------------------------------------------
 # Separate package from python3-cairo, and Ubuntu's python3-gi does not pull it
@@ -83,15 +103,9 @@ else
 fi
 
 # --- 4. console scripts ------------------------------------------------------
+# The collision pre-scan already ran during preflight, before the venv was
+# created; only the linking remains.
 mkdir -p "$FLUXMAX_BIN_DIR"
-# Scan all targets before linking any of them, so a collision aborts with
-# nothing created rather than leaving a half-linked ~/.local/bin.
-for script in "${CONSOLE_SCRIPTS[@]}"; do
-    target="$FLUXMAX_BIN_DIR/$script"
-    if [ -e "$target" ] && [ ! -L "$target" ]; then
-        die "$target exists and is not a symlink -- refusing to overwrite it"
-    fi
-done
 for script in "${CONSOLE_SCRIPTS[@]}"; do
     ln -sfn "$FLUXMAX_VENV/bin/$script" "$FLUXMAX_BIN_DIR/$script"
 done
@@ -140,10 +154,14 @@ log "Installed the GNOME Shell extension"
 # --- 8. systemd unit ---------------------------------------------------------
 mkdir -p "$FLUXMAX_UNIT_DIR"
 install -m 0644 "$REPO_DIR/data/$UNIT_NAME" "$FLUXMAX_UNIT_DIR/$UNIT_NAME"
-systemctl --user daemon-reload
+systemctl --user daemon-reload || warn "systemctl daemon-reload failed; the unit may not" \
+    "be picked up until you log out and back in."
 if [ "$START_SERVICE" = "1" ]; then
-    systemctl --user enable --now "$UNIT_NAME"
-    log "Daemon enabled and started"
+    if systemctl --user enable --now "$UNIT_NAME"; then
+        log "Daemon enabled and started"
+    else
+        warn "the daemon did not start; check 'systemctl --user status $UNIT_NAME'"
+    fi
 else
     log "Unit installed but not started (--no-start)"
 fi

@@ -63,6 +63,18 @@ def test_resets_the_ramps_to_neutral_while_the_venv_still_exists(sandbox):
     assert any("--temp 6500" in c for c in sandbox.called("fluxmax-apply"))
 
 
+def test_does_not_claim_success_when_the_ramp_reset_fails(sandbox):
+    """The success line must not print alongside the warning: a user whose
+    ramps were not reset should not also see 'Reset the displays'."""
+    sandbox.run("install.sh")
+    venv_apply = sandbox.data / "fluxmax" / "venv" / "bin" / "fluxmax-apply"
+    venv_apply.write_text("#!/usr/bin/env bash\nexit 1\n")
+    venv_apply.chmod(0o755)
+    proc = sandbox.run("uninstall.sh")
+    assert "could not reset the gamma ramps" in proc.stderr
+    assert "Reset the displays" not in proc.stdout
+
+
 def test_disables_the_extension(sandbox):
     sandbox.run("install.sh")
     sandbox.stub_log_path.write_text("")

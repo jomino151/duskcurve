@@ -70,6 +70,31 @@ def test_a_refused_clobber_leaves_no_partial_symlink_set(sandbox):
     assert not (sandbox.bin / "fluxmax-apply").exists()
 
 
+def test_diagnostic_die_names_the_remedy_for_an_old_pip_install(sandbox):
+    """When the collision is caused by an old `pip install --user` copy, the
+    die message should point at the actual remedy instead of a generic
+    'refusing to overwrite' that leaves the user guessing."""
+    sandbox.bin.mkdir(parents=True, exist_ok=True)
+    (sandbox.bin / "fluxmax-gui").write_text("#!/bin/sh\necho not ours\n")
+    sandbox.env["STUB_PIP_SHOW_OK"] = "0"
+    proc = sandbox.run("install.sh", "--no-start", expect_ok=False)
+    assert proc.returncode != 0
+    combined = proc.stdout + proc.stderr
+    assert "pip uninstall" in combined
+    assert "left by an older" in combined
+
+
+def test_refused_clobber_creates_no_venv_and_wastes_no_pip_install(sandbox):
+    """The console-script pre-scan must run before the venv is created, so a
+    refused clobber costs nothing -- not a full pip install."""
+    sandbox.bin.mkdir(parents=True, exist_ok=True)
+    (sandbox.bin / "fluxmax-gui").write_text("#!/bin/sh\necho not ours\n")
+    proc = sandbox.run("install.sh", "--no-start", expect_ok=False)
+    assert proc.returncode != 0
+    assert not (sandbox.data / "fluxmax" / "venv").exists()
+    assert not sandbox.called("pip")
+
+
 def test_fails_fast_when_the_system_python_has_no_gi(sandbox):
     """Without gi nothing works, and the failure would otherwise surface much
     later as an import error inside the daemon under systemd."""
@@ -223,6 +248,17 @@ def test_no_start_installs_the_unit_but_does_not_enable_it(sandbox):
     sandbox.run("install.sh", "--no-start")
     assert (sandbox.config / "systemd" / "user" / "fluxmax-daemon.service").is_file()
     assert not any("enable" in c for c in sandbox.called("systemctl"))
+
+
+def test_closing_message_prints_even_when_systemctl_fails(sandbox):
+    """Regression guard for Important 4: the closing message is the only
+    place the user is told to log out before the extension loads. It must
+    still print if the daemon cannot start (no session bus, no graphical
+    session)."""
+    sandbox.env["STUB_SYSTEMCTL_FAIL"] = "1"
+    proc = sandbox.run("install.sh")
+    assert proc.returncode == 0
+    assert "log out" in proc.stdout.lower()
 
 
 def test_closing_message_names_the_logout_the_config_and_the_rules_caveat(sandbox):
