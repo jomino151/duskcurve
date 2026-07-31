@@ -77,6 +77,17 @@ def test_state_set_creates_the_directory(sandbox):
     assert (sandbox.data / "fluxmax" / "install-state").is_file()
 
 
+def test_icon_theme_dir_is_the_parent_of_icon_dir(sandbox):
+    """install.sh and uninstall.sh both need the theme root (for
+    gtk-update-icon-cache) as well as the deeper scalable/apps dir; both
+    should derive from one place instead of being hand-built twice."""
+    out = source(
+        sandbox, 'echo "$FLUXMAX_ICON_THEME_DIR"; echo "$FLUXMAX_ICON_DIR"'
+    ).stdout.split("\n")
+    assert out[0] == str(sandbox.data / "icons" / "hicolor")
+    assert out[1] == str(sandbox.data / "icons" / "hicolor" / "scalable" / "apps")
+
+
 def test_have_detects_present_and_absent_commands(sandbox):
     assert source(sandbox, "have bash && echo yes").stdout.strip() == "yes"
     proc = source(sandbox, "have definitely-not-a-real-command", expect_ok=False)

@@ -111,6 +111,8 @@ for script in "${CONSOLE_SCRIPTS[@]}"; do
 done
 log "Linked ${CONSOLE_SCRIPTS[*]} into $FLUXMAX_BIN_DIR"
 
+# Diagnostic only -- nothing reads this back. Recorded so a user (or a bug
+# report) can tell a --dev install from a copy.
 state_set install_mode "$INSTALL_MODE"
 
 # --- 5. record Night Light ---------------------------------------------------
@@ -132,7 +134,7 @@ mkdir -p "$FLUXMAX_ICON_DIR" "$FLUXMAX_APP_DIR"
 install -m 0644 "$REPO_DIR/data/icons/$ICON_NAME" "$FLUXMAX_ICON_DIR/$ICON_NAME"
 install -m 0644 "$REPO_DIR/data/$DESKTOP_FILE" "$FLUXMAX_APP_DIR/$DESKTOP_FILE"
 # Both refreshers are optional: a stale cache costs an icon, not an install.
-have gtk-update-icon-cache && gtk-update-icon-cache -qtf "$FLUXMAX_DATA_HOME/icons/hicolor" || true
+have gtk-update-icon-cache && gtk-update-icon-cache -qtf "$FLUXMAX_ICON_THEME_DIR" || true
 have update-desktop-database && update-desktop-database -q "$FLUXMAX_APP_DIR" || true
 log "Installed the icon and desktop entry"
 

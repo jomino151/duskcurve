@@ -72,7 +72,7 @@ fi
 
 # --- 5. desktop file, icon, console scripts ----------------------------------
 rm -f "$FLUXMAX_APP_DIR/$DESKTOP_FILE" "$FLUXMAX_ICON_DIR/$ICON_NAME"
-have gtk-update-icon-cache && gtk-update-icon-cache -qtf "$FLUXMAX_DATA_HOME/icons/hicolor" || true
+have gtk-update-icon-cache && gtk-update-icon-cache -qtf "$FLUXMAX_ICON_THEME_DIR" || true
 have update-desktop-database && update-desktop-database -q "$FLUXMAX_APP_DIR" || true
 for script in "${CONSOLE_SCRIPTS[@]}"; do
     # Only ever remove our own symlinks. Anything else is not ours.
