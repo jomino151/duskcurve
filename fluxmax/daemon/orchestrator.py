@@ -64,9 +64,10 @@ class Orchestrator:
         # Every temperature change eases toward its target, but the pace
         # depends on WHAT caused the change, not just that it changed:
         # "schedule" (curve drift, the default/fallback), "manual" (a
-        # deliberate temp set/clear), "toggle" (pause or display enable
-        # flipping -- hardcoded instant), or "rule" (a window rule engaging or
-        # releasing). Set when the cause happens, cleared back to "schedule"
+        # deliberate temp set/clear), "toggle" (pause/unpause -- hardcoded
+        # instant; display enable/disable needs no entry at all, see
+        # set_config), or "rule" (a window rule engaging or releasing).
+        # Set when the cause happens, cleared back to "schedule"
         # once the display converges on its target, so a multi-tick
         # transition keeps its own rate the whole way instead of reverting to
         # the schedule's rate after the first tick.
@@ -129,9 +130,12 @@ class Orchestrator:
         for connector in list(self._current_k):
             if connector not in connectors:
                 del self._current_k[connector]
-        for state in (self._prev_actions, self._pacing):
+        for state in (self._prev_actions, self._pacing, self._manual):
             for connector in list(state):
-                if connector not in connectors:
+                # "" is the all-displays manual key, not a real connector, so
+                # it must survive; a per-connector override must not, or it
+                # silently re-applies when a monitor of that name comes back.
+                if connector != "" and connector not in connectors:
                     del state[connector]
 
     def tick(self) -> None:

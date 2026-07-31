@@ -61,6 +61,7 @@ class FakeMutterTransport:
         self._mc_cb: Callable[[], None] | None = None
         self._force_stale = False
         self._stale_bump: int | None = None
+        self._disabled_crtcs: dict[str, int] = {}
 
     def call(self, method: str, args: tuple) -> tuple:
         if method == "GetResources":
@@ -99,4 +100,11 @@ class FakeMutterTransport:
     def disable_output(self, name: str) -> None:
         for out in self._outputs:
             if out[4] == name:
+                self._disabled_crtcs[name] = out[2]
                 out[2] = -1
+
+    def enable_output(self, name: str) -> None:
+        """Undo disable_output -- for testing a monitor being plugged back in."""
+        for out in self._outputs:
+            if out[4] == name and name in self._disabled_crtcs:
+                out[2] = self._disabled_crtcs.pop(name)

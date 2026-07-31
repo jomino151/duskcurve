@@ -193,7 +193,7 @@ def test_pause_and_unpause():
 
 def test_easing_lands_strictly_between_old_and_target():
     # A deliberate manual set eases at manual_transition_seconds (default
-    # 3.0s), not the schedule's transition_seconds -- see the pacing tests
+    # 2.0s), not the schedule's transition_seconds -- see the pacing tests
     # below. transition_seconds is set high here to prove that a slow
     # schedule pace does NOT leak into the manual change.
     cfg = replace(default_config(), transition_seconds=60.0)
@@ -224,6 +224,53 @@ def test_monitors_changed_re_apply_drops_missing_connector():
     status = orch.status()
     assert [d["connector"] for d in status["per_display"]] == ["DP-2"]
     assert be.get_gamma("DP-2") == build_ramp(4096, 6500)
+
+
+def test_manual_override_does_not_survive_a_monitor_being_unplugged():
+    """A per-connector manual temp is pruned with the rest of the connector's
+    state. Otherwise it lies dormant and silently re-applies whenever a
+    monitor with the same connector name comes back -- possibly days later."""
+    cfg = replace(default_config(), transition_seconds=0.0, manual_transition_seconds=0.0)
+    clock = FakeClock(_dt(13, 0))
+    be, t, orch = _new(cfg, clock)
+
+    orch.set_manual_temp("HDMI-1", 2000, 0)
+    orch.tick()
+    assert be.get_gamma("HDMI-1") == build_ramp(4096, 2000)
+
+    t.disable_output("HDMI-1")
+    t.emit_monitors_changed()
+    orch.on_monitors_changed()
+    orch.tick()
+
+    t.enable_output("HDMI-1")
+    t.emit_monitors_changed()
+    orch.on_monitors_changed()
+    orch.tick()
+
+    hdmi = next(d for d in orch.status()["per_display"] if d["connector"] == "HDMI-1")
+    assert hdmi["manual_k"] is None
+    assert hdmi["current_k"] != 2000
+
+
+def test_global_manual_override_survives_a_monitor_being_unplugged():
+    """The all-displays manual key is "" -- not a real connector, so pruning
+    by connector must not evict it."""
+    cfg = replace(default_config(), transition_seconds=0.0, manual_transition_seconds=0.0)
+    clock = FakeClock(_dt(13, 0))
+    be, t, orch = _new(cfg, clock)
+
+    orch.set_manual_temp("", 2000, 0)
+    orch.tick()
+
+    t.disable_output("HDMI-1")
+    t.emit_monitors_changed()
+    orch.on_monitors_changed()
+    orch.tick()
+
+    dp2 = next(d for d in orch.status()["per_display"] if d["connector"] == "DP-2")
+    assert dp2["manual_k"] == 2000
+    assert be.get_gamma("DP-2") == build_ramp(4096, 2000)
 
 
 def test_status_shape():
@@ -601,8 +648,8 @@ def test_status_keeps_every_pre_m6_key():
 # Cause-based pacing (M6 hardware-pass fix): schedule / manual / toggle / rule
 # ---------------------------------------------------------------------------
 #
-# transition_seconds=20 (schedule) and manual_transition_seconds=3 (manual,
-# the default) are always kept far apart in these tests so a wrong pacing
+# transition_seconds=20 (schedule) and manual_transition_seconds=3 (manual;
+# set explicitly here, above the 2.0 default) are kept far apart so a wrong pacing
 # category produces an unmistakably wrong amount of movement, not just a
 # slightly-off number.
 
