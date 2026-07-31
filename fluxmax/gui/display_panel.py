@@ -53,6 +53,23 @@ _KELVIN_KINDS = ("warm_cap", "fixed")
 _OFFSET_MIN = -200.0
 _OFFSET_MAX = 200.0
 
+# "warm_cap" reads as a ceiling but is a floor on Kelvin: warmer means *lower*
+# K, so capping warmth is a max(). That inversion has misled readers of the
+# code and of this panel, so the row says which direction it clamps rather
+# than leaving the name to carry it.
+_VALUE_SUBTITLES = {
+    "warm_cap": (
+        "Never warmer than this. The display follows the schedule until it "
+        "reaches this value, then stops there — so it does nothing while the "
+        "schedule is still cooler than the value."
+    ),
+    "fixed": "Ignores the schedule entirely; this display stays at this value.",
+    "offset": (
+        "Shifts the whole schedule by a mired delta. Positive is warmer, "
+        "negative is cooler."
+    ),
+}
+
 
 class _DisplayGroup:
     """Widgets and per-connector guard state for one display's
@@ -155,6 +172,7 @@ class _DisplayGroup:
         else:
             self.value_row.set_title("Value")
             self.value_row.set_sensitive(False)
+        self.value_row.set_subtitle(_VALUE_SUBTITLES.get(kind, ""))
 
     # -- enabled / kind / value --------------------------------------------
 
