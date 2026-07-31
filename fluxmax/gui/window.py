@@ -258,8 +258,7 @@ class FluxMaxWindow(Adw.ApplicationWindow):
             return
         parts = []
         for d in status.displays:
-            kelvin = d.manual_k if d.manual_k is not None else d.current_k
-            parts.append(f"{d.connector} {kelvin} K")
+            parts.append(f"{d.connector} {d.live_kelvin} K")
         self._temp_label.set_label(" · ".join(parts))
 
     def _maybe_show_error(self) -> None:

@@ -33,6 +33,22 @@ def test_parses_a_full_payload():
     assert st.window == WindowStatus("org.gimp.GIMP", True, "DP-2")
 
 
+def test_live_kelvin_is_the_eased_value_not_the_manual_target():
+    """manual_k is the *target* of a manual override; the display eases toward
+    it over manual_transition_seconds. A readout must show current_k, or it
+    sits frozen on the endpoint -- off by the whole remaining gap -- while the
+    panel is still visibly transitioning."""
+    st = parse_status(FULL)
+    warm = st.display("HDMI-1")
+    assert warm.manual_k == 2200  # where it is headed
+    assert warm.current_k == 2700  # where it is right now
+    assert warm.live_kelvin == 2700
+
+    plain = st.display("DP-2")
+    assert plain.manual_k is None
+    assert plain.live_kelvin == plain.current_k == 3400
+
+
 def test_display_lookup_by_connector():
     st = parse_status(FULL)
     assert st.display("HDMI-1").current_k == 2700

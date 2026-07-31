@@ -21,6 +21,24 @@ class DisplayStatus:
     rule_kelvin: float | None
     manual_k: int | None
 
+    @property
+    def live_kelvin(self) -> int:
+        """The temperature this display is showing *right now*.
+
+        Always `current_k`, never `manual_k`. The distinction matters because
+        `manual_k` is the manual override's *target*: the display eases toward
+        it over `manual_transition_seconds`, so during that ease the two differ
+        by the whole remaining gap. A readout that shows `manual_k` therefore
+        sits frozen on the endpoint -- consistently warmer or cooler than the
+        panel, depending on which way the change went -- while the screen is
+        still visibly transitioning.
+
+        Controls are the exception and deliberately do NOT use this: the manual
+        slider tracks `manual_k` so its handle stays where the user dropped it
+        instead of springing back and crawling toward the target.
+        """
+        return self.current_k
+
 
 @dataclass(frozen=True)
 class WindowStatus:
