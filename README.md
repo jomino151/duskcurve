@@ -1,6 +1,30 @@
 # flux-max
 GNOME/Wayland-native, f.lux-equivalent blue-light filter. GPL-3.0-or-later.
 
+## Requirements
+
+Built and tested on **Ubuntu 24.04 / GNOME 46 / Wayland**, on a dual-monitor AMD setup. That is
+narrower than it sounds, and the reason is structural: on GNOME/Wayland the only way to set
+gamma is Mutter's `org.gnome.Mutter.DisplayConfig` D-Bus API. `redshift`, `gammastep` and
+`xrandr` do not work here at all, because Mutter implements neither X11 RANDR gamma nor the
+wlroots gamma protocols.
+
+- **GNOME 46 on Wayland.** Other GNOME versions are untested — see the caveat below. X11 is
+  untested.
+- **Python 3.12 or newer.**
+- **`python3-gi`** (the system PyGObject). Required; `./install.sh` stops if it is missing.
+- **`python3-gi-cairo`**, for the GUI's curve editor. A separate package from `python3-cairo`,
+  and Ubuntu's `python3-gi` does not pull it in. `./install.sh` offers to install it; declining
+  is fine, and only the curve editor degrades (to a status page telling you how to fix it).
+
+**On GNOME 47 or newer, window rules will not work.** The shell extension declares
+`"shell-version": ["46"]` in its `metadata.json`, and GNOME Shell refuses to load an extension
+that does not list the running version. The daemon and the GUI are unaffected — the schedule,
+per-display overrides and manual temperatures all work normally — but nothing will ever report a
+focused or fullscreen window, so every `[[rules]]` entry stays inert, exactly as if no extension
+were installed. The version list is deliberately not widened past what has actually been tested;
+if you run a newer GNOME and want to try it, add your version to that list and see.
+
 ## App / fullscreen rules
 
 The daemon can react to the focused application or a fullscreen window per display,
