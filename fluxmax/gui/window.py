@@ -50,10 +50,37 @@ _APP_VERSION = "0.1.0"
 _DEFAULT_TICK_SECONDS = 2.0
 _NARROW_WIDTH = "550sp"
 
+# Adwaita has no built-in minimum size for ApplicationWindow -- without one,
+# GTK lets the window shrink until content (the curve editor's 320px content
+# height plus the surrounding rows) no longer fits, which is what produced
+# the "AdwToolbarView exceeds ... height" warnings on real hardware. These
+# are genuinely usable floors, not just warning-silencers: 360 is the
+# conventional minimum width for a single-column Adwaita layout (and sits
+# comfortably under the view-switcher breakpoint above), and 480 leaves
+# useful headroom above a phone-sized "unusably squashed" window while still
+# relying on the per-view Gtk.ScrolledWindow for anything taller.
+_MIN_WIDTH = 360
+_MIN_HEIGHT = 480
+
+
 _FORMATTING_BANNER_TEXT = (
     "flux-max now owns this config file's formatting -- hand-written comments "
     "and layout will not survive the next save."
 )
+
+
+def _scrolled(child: Gtk.Widget) -> Gtk.ScrolledWindow:
+    """Wrap `child` so a too-short window scrolls instead of clipping it.
+
+    Vertical-only: horizontal-policy NEVER keeps a view page from ever
+    scrolling sideways, matching how every page here lays out (a single
+    vertical column of rows/groups).
+    """
+    scrolled = Gtk.ScrolledWindow()
+    scrolled.set_child(child)
+    scrolled.set_vexpand(True)
+    scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    return scrolled
 
 
 class FluxMaxWindow(Adw.ApplicationWindow):
@@ -62,6 +89,10 @@ class FluxMaxWindow(Adw.ApplicationWindow):
     ) -> None:
         super().__init__(application=application, title=_APP_NAME)
         self.set_default_size(900, 700)
+        # See _MIN_WIDTH/_MIN_HEIGHT: without an explicit minimum, Adwaita
+        # warns ("FluxMaxWindow does not have a minimum size...") and lets
+        # the window shrink past what its content can render.
+        self.set_size_request(_MIN_WIDTH, _MIN_HEIGHT)
 
         self._state = state
         self._client = client
@@ -96,13 +127,13 @@ class FluxMaxWindow(Adw.ApplicationWindow):
         self._display_view = DisplayView(state, client)
         self._rules_view = RulesView(state)
         self._view_stack.add_titled_with_icon(
-            self._schedule_view, "schedule", "Schedule", "alarm-symbolic"
+            _scrolled(self._schedule_view), "schedule", "Schedule", "alarm-symbolic"
         )
         self._view_stack.add_titled_with_icon(
-            self._display_view, "displays", "Displays", "video-display-symbolic"
+            _scrolled(self._display_view), "displays", "Displays", "video-display-symbolic"
         )
         self._view_stack.add_titled_with_icon(
-            self._rules_view, "rules", "Rules", "preferences-system-symbolic"
+            _scrolled(self._rules_view), "rules", "Rules", "preferences-system-symbolic"
         )
 
         self._view_switcher = Adw.ViewSwitcher(
@@ -228,8 +259,7 @@ class FluxMaxWindow(Adw.ApplicationWindow):
             return
         parts = []
         for d in status.displays:
-            kelvin = d.manual_k if d.manual_k is not None else d.current_k
-            parts.append(f"{d.connector} {kelvin} K")
+            parts.append(f"{d.connector} {d.live_kelvin} K")
         self._temp_label.set_label(" · ".join(parts))
 
     def _maybe_show_error(self) -> None:

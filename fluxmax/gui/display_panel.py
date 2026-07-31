@@ -42,6 +42,11 @@ from gi.repository import Adw, GObject, Gtk  # noqa: E402
 
 from fluxmax.daemon.config import Config, DisplayConfig  # noqa: E402
 from fluxmax.gui.client import DaemonClient  # noqa: E402
+from fluxmax.gui.duration import (  # noqa: E402
+    DURATION_LABELS,
+    duration_for_index,
+    manual_description,
+)
 from fluxmax.gui.manual_temp import ManualTempScale  # noqa: E402
 from fluxmax.gui.protocol import DisplayStatus  # noqa: E402
 from fluxmax.gui.state import AppState  # noqa: E402
@@ -52,6 +57,23 @@ _OVERRIDE_KINDS = ["none", "warm_cap", "fixed", "offset"]
 _KELVIN_KINDS = ("warm_cap", "fixed")
 _OFFSET_MIN = -200.0
 _OFFSET_MAX = 200.0
+
+# "warm_cap" reads as a ceiling but is a floor on Kelvin: warmer means *lower*
+# K, so capping warmth is a max(). That inversion has misled readers of the
+# code and of this panel, so the row says which direction it clamps rather
+# than leaving the name to carry it.
+_VALUE_SUBTITLES = {
+    "warm_cap": (
+        "Never warmer than this. The display follows the schedule until it "
+        "reaches this value, then stops there — so it does nothing while the "
+        "schedule is still cooler than the value."
+    ),
+    "fixed": "Ignores the schedule entirely; this display stays at this value.",
+    "offset": (
+        "Shifts the whole schedule by a mired delta. Positive is warmer, "
+        "negative is cooler."
+    ),
+}
 
 
 class _DisplayGroup:
@@ -90,6 +112,14 @@ class _DisplayGroup:
         self.value_row.add_controller(value_focus)
         self.group.add(self.value_row)
 
+        # A control, not a readout -- never written from status, so no
+        # re-entrancy guard is needed (unlike the scale below).
+        self.duration_row = Adw.ComboRow(
+            title="Manual duration", model=Gtk.StringList.new(list(DURATION_LABELS))
+        )
+        self.duration_row.connect("notify::selected", self._on_duration_changed)
+        self.group.add(self.duration_row)
+
         manual_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         manual_box.set_margin_top(6)
         manual_box.set_margin_bottom(6)
@@ -109,7 +139,10 @@ class _DisplayGroup:
     # -- rendering --------------------------------------------------------
 
     def render(self, cfg: Config, display_cfg: DisplayConfig, status: DisplayStatus) -> None:
-        self.group.set_description(f"Current: {status.current_k} K")
+        description = f"Current: {status.live_kelvin} K"
+        if status.manual_k is not None:
+            description += f" · {manual_description(True, status.manual_expires_in_s)}"
+        self.group.set_description(description)
 
         self.enabled_row.set_active(display_cfg.enabled)
 
@@ -155,6 +188,7 @@ class _DisplayGroup:
         else:
             self.value_row.set_title("Value")
             self.value_row.set_sensitive(False)
+        self.value_row.set_subtitle(_VALUE_SUBTITLES.get(kind, ""))
 
     # -- enabled / kind / value --------------------------------------------
 
@@ -222,9 +256,23 @@ class _DisplayGroup:
 
     # -- manual temperature -------------------------------------------------
 
+    def _on_duration_changed(self, _row: Adw.ComboRow, _pspec: GObject.ParamSpec) -> None:
+        # Re-arm an override already running on this display -- see the twin
+        # in schedule_view. Changing only the duration otherwise sends nothing.
+        if self._view._rendering:
+            return
+        status = self._view._state.status
+        if status is None:
+            return
+        current = next((d for d in status.displays if d.connector == self.connector), None)
+        if current is None or current.manual_k is None:
+            return
+        self._commit_manual_temp(float(current.manual_k))
+
     def _commit_manual_temp(self, kelvin: float) -> None:
+        duration_min = duration_for_index(self.duration_row.get_selected())
         try:
-            self._view._client.set_manual_temp(self.connector, round(kelvin), 0)
+            self._view._client.set_manual_temp(self.connector, round(kelvin), duration_min)
         except Exception as exc:
             log.exception("set_manual_temp failed for %s", self.connector)
             self._view._state.set_error(str(exc))

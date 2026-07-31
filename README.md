@@ -35,21 +35,40 @@ schedule curve; and with no override, no manual temp, and no matching rule, the 
 just follows its usual curve (plus any per-display override configured under
 `[displays.<connector>]`).
 
-### How fast a rule takes effect
+### How fast a change takes effect
 
-A rule change is a reaction to something you just did — going fullscreen — not the
-gradual circadian drift the schedule's easing is tuned for, so **rules apply instantly
-by default**. The two speeds are configured separately:
+A single "eased over N seconds" transition feels right for the sun crawling across the
+sky and wrong for everything else: nobody wants to wait 20 seconds for a manual slider
+drag to land, and pausing or flipping a display off should be immediate, not a fade.
+So the pacing that applies to a given temperature change depends on what caused it, not
+just that it changed:
+
+- **Schedule** — the curve drifting as time passes, or an override recomputing. This is
+  the slow, natural one; it eases over `transition_seconds` (default 20 s). A manual
+  temp that expires on its own (its duration ran out) also drifts back at this pace,
+  because nobody asked for that change right now — it's the schedule reclaiming control.
+- **Manual** — you set or clear a manual temperature (slider, quick-set, or the "Resume
+  schedule" button). Deliberate, but not urgent; eases over `manual_transition_seconds`
+  (default 2 s). This is a time constant, not a duration — each tick closes
+  `min(1, dt/seconds)` of the remaining gap, so at the default 2 s tick interval a
+  2.0 s constant settles the whole change in about one tick.
+- **Toggle** — pausing/unpausing the daemon, or enabling/disabling a display. Both are
+  a binary on/off decision with no useful in-between rate, so these are hardcoded
+  **instant** (not configurable).
+- **Rule** — a window rule engaging or releasing (e.g. going fullscreen). A reaction to
+  something you just did, not the circadian drift the schedule's easing is tuned for, so
+  **rules apply instantly by default**, configurable via `rule_transition_seconds`.
 
 ```toml
 [transition]
-seconds = 20.0        # schedule / curve changes: eased over 20s
-rule_seconds = 0.0    # rule engages or releases: 0 = instant (default)
+seconds = 20.0         # schedule: curve drift / override recompute / manual-temp expiry
+manual_seconds = 2.0   # manual: a deliberate temp set or clear
+rule_seconds = 0.0     # rule: a rule engaging or releasing -- 0 = instant (default)
+# pause/unpause and display enable/disable are always instant, not configurable
 ```
 
-Set `rule_seconds` above zero to ease rule changes instead; the transition then runs at
-that rate in both directions, engaging and releasing. `seconds` is unaffected either
-way — a manual temperature change or ordinary curve drift still eases over `seconds`.
+Each category's easing rate is independent of the others — changing one doesn't affect
+how the rest transition.
 
 Two copyable examples:
 
@@ -97,11 +116,22 @@ gnome-extensions enable focused-window@fluxmax
 
 Launch with `fluxmax-gui` (requires the daemon to be running; if the daemon is not reachable, the app shows a status page instead of working offline, since the daemon owns the configuration and the GUI never edits the config file directly).
 
+The curve editor needs the `python3-gi-cairo` system package (the PyGObject-to-pycairo
+bridge) to draw. It's a separate package from `python3-cairo`/pycairo itself, so it's easy
+to have one without the other. If it's missing, the rest of the GUI still works normally —
+the curve editor just shows a status page naming this fix instead of the curve:
+
+```bash
+sudo apt install python3-gi-cairo
+```
+
 The window has three tabs:
 
-- **Schedule**: Mode selection (built-in modes or a custom editable curve), wake and bedtime times (HH:MM), a manual temperature slider with colour-temperature presets (Ember, Candle, Dim Incandescent, Incandescent, Halogen, Fluorescent, Sunlight, Daylight), and a "Resume schedule" button to clear the override. The curve editor occupies the centre of the screen and shows the day's colour-temperature curve with markers for the configured wake/bedtime and solar events (sunrise/sunset).
+- **Schedule**: Mode selection (built-in modes or a custom editable curve), wake and bedtime times (HH:MM), a manual temperature slider with colour-temperature presets (Ember, Candle, Dim Incandescent, Incandescent, Halogen, Fluorescent, Sunlight, Daylight), a **Duration** for the override (Until cleared, 15 min, 30 min, 1 hour, 2 hours), and a "Resume schedule" button to clear it. The curve editor occupies the centre of the screen and shows the day's colour-temperature curve with markers for the configured wake/bedtime and solar events (sunrise/sunset).
 
-- **Displays**: Per-display controls for each connected monitor. Each display shows its live colour temperature, an enable/disable toggle, an override kind (none, `warm_cap`, `fixed`, or a mired `offset`), and a value field. A manual slider and resume button are available below. An accent badge appears when a window rule is currently controlling that display, showing which rule and what action it is applying.
+- **Displays**: Per-display controls for each connected monitor. Each display shows its live colour temperature, an enable/disable toggle, an override kind (none, `warm_cap`, `fixed`, or a mired `offset`), a value field, and a **Manual duration** for that display's own override. A manual slider and resume button are available below. An accent badge appears when a window rule is currently controlling that display, showing which rule and what action it is applying.
+
+Whenever a manual override is running, the group description says so, and — if it was given a duration — counts down: *"Manual override active — 25 min left."* An override set to "Until cleared" says that instead, so a forgotten override never looks like a dead schedule. The duration is chosen per set: the dropdown is a control rather than a readout, so it always starts at "Until cleared" and does not reflect what is currently running. The countdown is the thing that tells you that. Changing the dropdown while an override is already running re-arms that override at the new duration immediately, so you can add or remove a timer without touching the slider.
 
 - **Rules**: The ordered list of app and fullscreen rules (first-match-wins: rules are evaluated top to bottom, and the first match wins). Use "Add rule" to create a new rule, or click the edit icon on an existing rule to change it. Up/down arrows reorder rules; delete removes them with an undo toast. Rules are highlighted if they are currently active on any display, showing which monitors they control.
 
@@ -124,5 +154,8 @@ Saving from the GUI rewrites `~/.config/fluxmax/config.toml` through the daemon'
 A menu button (☰) in the header opens **Preferences**, where you can set the location (latitude, longitude, and IANA timezone), temperature range (minimum and maximum Kelvin), and timing parameters:
 
 - **Transition (s)**: Easing time for the gradual circadian drift (default 20 s).
+- **Manual transition (s)**: Easing time for a deliberate temperature change (slider, quick-set), as distinct from the schedule's gradual drift — quick, but not snap-instant like a pause or display toggle (default 2 s).
 - **Rule transition (s)**: Easing time for rule engages and releases, separate from the regular transition. Rules react to deliberate user actions like going fullscreen, not the slow circadian drift, so this defaults to 0 (instant).
 - **Tick interval (s)**: How often the daemon re-evaluates the schedule (default 2 s).
+
+Pausing and enabling/disabling a display are not in this list: they are hardcoded instant, since a binary on/off decision has no useful in-between rate to configure.

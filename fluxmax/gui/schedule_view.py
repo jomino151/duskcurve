@@ -39,6 +39,11 @@ from fluxmax.color import PRESETS  # noqa: E402
 from fluxmax.daemon.config import Config  # noqa: E402
 from fluxmax.gui.client import DaemonClient  # noqa: E402
 from fluxmax.gui.curve_editor import CurveEditor  # noqa: E402
+from fluxmax.gui.duration import (  # noqa: E402
+    DURATION_LABELS,
+    duration_for_index,
+    manual_description,
+)
 from fluxmax.gui.editing import effective_keypoints, fork_to_custom, with_keypoints  # noqa: E402
 from fluxmax.gui.manual_temp import ManualTempScale  # noqa: E402
 from fluxmax.gui.state import AppState  # noqa: E402
@@ -115,6 +120,15 @@ class ScheduleView(Gtk.Box):
         schedule_group.add(self._mode_row)
 
         self._wake_row = Adw.EntryRow(title="Wake (HH:MM)")
+        # Adw.EntryRow only emits ::apply when show-apply-button is True
+        # (verified live against libadwaita 1.5.0; it's False by default) --
+        # without this, Enter never committed and the next render silently
+        # reverted the user's typed text. Same bug as the Preferences
+        # timezone field; see prefs.py. ::apply itself only covers Enter and
+        # the apply-button click, though (also verified live) -- it does not
+        # fire on a plain focus-out, so the focus-leave handler below commits
+        # explicitly too.
+        self._wake_row.set_show_apply_button(True)
         self._wake_row.connect("apply", self._on_wake_apply)
         focus = Gtk.EventControllerFocus()
         focus.connect("enter", self._on_wake_focus_enter)
@@ -123,6 +137,7 @@ class ScheduleView(Gtk.Box):
         schedule_group.add(self._wake_row)
 
         self._bedtime_row = Adw.EntryRow(title="Bedtime (HH:MM)")
+        self._bedtime_row.set_show_apply_button(True)
         self._bedtime_row.connect("apply", self._on_bedtime_apply)
         focus = Gtk.EventControllerFocus()
         focus.connect("enter", self._on_bedtime_focus_enter)
@@ -136,12 +151,35 @@ class ScheduleView(Gtk.Box):
         self._curve_editor = CurveEditor(self._on_keypoints_changed)
         curve_frame = Gtk.Frame()
         curve_frame.set_child(self._curve_editor)
-        self.append(curve_frame)
+        # The curve editor has a fixed 600px content width (keeping the
+        # drawn curve legible) that does not shrink -- without this, that
+        # fixed width propagates straight up through the page's vertical
+        # ScrolledWindow into the window's own size request, so a window
+        # narrowed toward the minimum could never actually get that narrow
+        # (an AdwToolbarView "exceeds width" warning, discovered live at the
+        # 360px minimum). Scrolling horizontally here, and only here, keeps
+        # the curve at full resolution while letting the window (and every
+        # other row on this page) shrink freely.
+        curve_scroller = Gtk.ScrolledWindow()
+        curve_scroller.set_child(curve_frame)
+        curve_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
+        curve_scroller.set_propagate_natural_height(True)
+        self.append(curve_scroller)
 
         # -- manual temperature -------------------------------------------
-        manual_group = Adw.PreferencesGroup(
-            title="Manual temperature", description="Overrides the schedule until cleared."
+        self._manual_group = Adw.PreferencesGroup(
+            title="Manual temperature", description=manual_description(False, None)
         )
+        manual_group = self._manual_group
+
+        # A control, not a readout: never written from status, so unlike the
+        # scale it needs no re-entrancy guard. Whatever is selected when the
+        # user releases the slider (or clicks a preset) is what gets sent.
+        self._duration_row = Adw.ComboRow(
+            title="Duration", model=Gtk.StringList.new(list(DURATION_LABELS))
+        )
+        self._duration_row.connect("notify::selected", self._on_duration_changed)
+        manual_group.add(self._duration_row)
 
         scale_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         scale_box.set_margin_top(6)
@@ -206,6 +244,19 @@ class ScheduleView(Gtk.Box):
             self._scale.render(
                 cfg.min_kelvin, cfg.max_kelvin, self._display_kelvin(status, cfg)
             )
+
+            # The global manual override lives on connector "", so it shows up
+            # identically on every display -- reading the first is enough.
+            # A *per-display* override on displays[0] is reported the same way
+            # and will also light this description up; the Resume button and
+            # _display_kelvin have always had that shape, so this follows it.
+            first = status.displays[0] if status is not None and status.displays else None
+            self._manual_group.set_description(
+                manual_description(
+                    first is not None and first.manual_k is not None,
+                    None if first is None else first.manual_expires_in_s,
+                )
+            )
         finally:
             self._rendering = False
 
@@ -265,12 +316,16 @@ class ScheduleView(Gtk.Box):
 
     def _on_wake_focus_leave(self, _ctrl: Gtk.EventControllerFocus) -> None:
         self._wake_editing = False
+        # ::apply doesn't fire on a plain focus-out (verified live) -- commit
+        # explicitly so tabbing/clicking away doesn't silently drop the edit.
+        self._on_wake_apply(self._wake_row)
 
     def _on_bedtime_focus_enter(self, _ctrl: Gtk.EventControllerFocus) -> None:
         self._bedtime_editing = True
 
     def _on_bedtime_focus_leave(self, _ctrl: Gtk.EventControllerFocus) -> None:
         self._bedtime_editing = False
+        self._on_bedtime_apply(self._bedtime_row)
 
     def _on_wake_apply(self, row: Adw.EntryRow) -> None:
         if self._rendering:
@@ -283,7 +338,13 @@ class ScheduleView(Gtk.Box):
             row.set_text(cfg.wake)
             return
         hour, minute = parsed
-        self._state.apply_config(dataclasses.replace(cfg, wake=f"{hour:02d}:{minute:02d}"))
+        wake = f"{hour:02d}:{minute:02d}"
+        # Focus-leave calls this unconditionally, and pressing Enter fires
+        # ::apply *and then* focus-leave, so without this guard merely tabbing
+        # through the field writes config.toml and broadcasts StatusChanged.
+        if wake == cfg.wake:
+            return
+        self._state.apply_config(dataclasses.replace(cfg, wake=wake))
 
     def _on_bedtime_apply(self, row: Adw.EntryRow) -> None:
         if self._rendering:
@@ -296,7 +357,10 @@ class ScheduleView(Gtk.Box):
             row.set_text(cfg.bedtime)
             return
         hour, minute = parsed
-        self._state.apply_config(dataclasses.replace(cfg, bedtime=f"{hour:02d}:{minute:02d}"))
+        bedtime = f"{hour:02d}:{minute:02d}"
+        if bedtime == cfg.bedtime:  # see _on_wake_apply
+            return
+        self._state.apply_config(dataclasses.replace(cfg, bedtime=bedtime))
 
     # -- manual temperature --------------------------------------------------
 
@@ -305,9 +369,24 @@ class ScheduleView(Gtk.Box):
             return
         self._scale.commit_explicit(float(kelvin))
 
+    def _on_duration_changed(self, _row: Adw.ComboRow, _pspec: GObject.ParamSpec) -> None:
+        # Re-arm an override that is already running. Without this, changing
+        # only the duration sends nothing: the scale commits on value-changed,
+        # so "2700 K until cleared, then pick 30 min" would silently stay
+        # permanent. With no override active there is nothing to re-arm, and
+        # the new selection simply applies to the next commit.
+        if self._rendering:
+            return
+        status = self._state.status
+        first = status.displays[0] if status is not None and status.displays else None
+        if first is None or first.manual_k is None:
+            return
+        self._commit_manual_temp(float(first.manual_k))
+
     def _commit_manual_temp(self, kelvin: float) -> None:
+        duration_min = duration_for_index(self._duration_row.get_selected())
         try:
-            self._client.set_manual_temp("", round(kelvin), 0)
+            self._client.set_manual_temp("", round(kelvin), duration_min)
         except Exception as exc:
             log.exception("set_manual_temp failed")
             self._state.set_error(str(exc))

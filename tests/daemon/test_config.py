@@ -554,3 +554,42 @@ def test_rule_transition_seconds_rejects_negative():
     )
     with pytest.raises(ConfigError):
         load_config(text)
+
+
+def test_manual_transition_seconds_defaults_to_two():
+    assert default_config().manual_transition_seconds == 2.0
+    assert load_config(dump_config(default_config())).manual_transition_seconds == 2.0
+
+
+def test_manual_transition_seconds_round_trips():
+    cfg = replace(default_config(), manual_transition_seconds=5.5)
+    assert load_config(dump_config(cfg)) == cfg
+
+
+def test_manual_transition_seconds_rejects_negative():
+    text = dump_config(default_config()).replace(
+        "[transition]\nseconds = 20.0", "[transition]\nseconds = 20.0\nmanual_seconds = -1.0"
+    )
+    with pytest.raises(ConfigError):
+        load_config(text)
+
+
+def test_manual_transition_seconds_non_numeric_raises_config_error():
+    text = (
+        _base_toml()
+        + """
+[transition]
+manual_seconds = "abc"
+"""
+    )
+    with pytest.raises(ConfigError):
+        load_config(text)
+
+
+def test_config_written_before_manual_transition_seconds_still_loads():
+    """A TOML document with no [transition].manual_seconds key at all (as
+    written by a pre-change build) must still load, defaulting the field."""
+    text = dump_config(default_config()).replace("manual_seconds = 2.0\n", "")
+    assert "manual_seconds" not in text
+    cfg = load_config(text)
+    assert cfg.manual_transition_seconds == 2.0

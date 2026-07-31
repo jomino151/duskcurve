@@ -58,15 +58,16 @@ _KELVIN_MARGIN = 1.0
 _KELVIN_FLOOR = 1.0
 _KELVIN_CEIL = 99999.0
 
-# fluxmax.daemon.config._validate_transition: seconds >= 0, rule_seconds >= 0.
+# fluxmax.daemon.config._validate_transition: seconds >= 0, rule_seconds >= 0,
+# manual_seconds >= 0.
 # fluxmax.daemon.config._validate_tick: interval_seconds > 0.
-# No daemon-side upper bound on any of the three; cap the widgets generously
+# No daemon-side upper bound on any of the four; cap the widgets generously
 # so the UI stays usable rather than to satisfy a validator.
 _TRANSITION_MAX = 3600.0
 _TICK_MIN = 0.1
 _TICK_MAX = 3600.0
 
-_TIMEZONES = available_timezones()
+_TIMEZONES = sorted(available_timezones())
 
 
 class PreferencesDialog(Adw.PreferencesDialog):
@@ -81,11 +82,11 @@ class PreferencesDialog(Adw.PreferencesDialog):
         # and the user may be mid-edit.
         self._latitude_editing = False
         self._longitude_editing = False
-        self._timezone_editing = False
         self._min_kelvin_editing = False
         self._max_kelvin_editing = False
         self._transition_editing = False
         self._rule_transition_editing = False
+        self._manual_transition_editing = False
         self._tick_editing = False
 
         page = Adw.PreferencesPage()
@@ -115,12 +116,19 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self._longitude_row.add_controller(lon_focus)
         location_group.add(self._longitude_row)
 
-        self._timezone_row = Adw.EntryRow(title="Timezone (IANA name)")
-        self._timezone_row.connect("apply", self._on_timezone_apply)
-        tz_focus = Gtk.EventControllerFocus()
-        tz_focus.connect("enter", self._on_timezone_focus_enter)
-        tz_focus.connect("leave", self._on_timezone_focus_leave)
-        self._timezone_row.add_controller(tz_focus)
+        # A searchable dropdown makes an invalid timezone unrepresentable --
+        # no validation branch or error path needed, unlike the freeform
+        # Adw.EntryRow this replaces. Adw.ComboRow (unlike Gtk.DropDown) was
+        # verified live against this libadwaita 1.5.0 install to expose an
+        # `enable-search` property directly, so it's used here rather than
+        # wrapping a Gtk.DropDown in an Adw.ActionRow.
+        timezone_model = Gtk.StringList.new(_TIMEZONES)
+        self._timezone_row = Adw.ComboRow(title="Timezone", model=timezone_model)
+        self._timezone_row.set_enable_search(True)
+        self._timezone_row.set_expression(
+            Gtk.PropertyExpression.new(Gtk.StringObject, None, "string")
+        )
+        self._timezone_row.connect("notify::selected", self._on_timezone_changed)
         location_group.add(self._timezone_row)
 
         # -- Temperature --------------------------------------------------
@@ -182,6 +190,21 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self._rule_transition_row.add_controller(rule_transition_focus)
         timing_group.add(self._rule_transition_row)
 
+        self._manual_transition_row = Adw.SpinRow.new_with_range(0.0, _TRANSITION_MAX, 1.0)
+        self._manual_transition_row.set_title("Manual transition (s)")
+        self._manual_transition_row.set_subtitle(
+            "Easing time for a deliberate temperature change (slider, quick-set), as distinct "
+            "from the schedule's gradual drift -- quick, but not snap-instant like a pause or "
+            "display toggle."
+        )
+        self._manual_transition_row.set_digits(1)
+        self._manual_transition_row.connect("notify::value", self._on_manual_transition_changed)
+        manual_transition_focus = Gtk.EventControllerFocus()
+        manual_transition_focus.connect("enter", self._on_manual_transition_focus_enter)
+        manual_transition_focus.connect("leave", self._on_manual_transition_focus_leave)
+        self._manual_transition_row.add_controller(manual_transition_focus)
+        timing_group.add(self._manual_transition_row)
+
         self._tick_row = Adw.SpinRow.new_with_range(_TICK_MIN, _TICK_MAX, 0.5)
         self._tick_row.set_title("Tick interval (s)")
         self._tick_row.set_subtitle("How often the daemon re-evaluates the schedule.")
@@ -223,8 +246,11 @@ class PreferencesDialog(Adw.PreferencesDialog):
                 self._latitude_row.set_value(cfg.location.latitude)
             if not self._longitude_editing:
                 self._longitude_row.set_value(cfg.location.longitude)
-            if not self._timezone_editing:
-                self._timezone_row.set_text(cfg.location.timezone)
+            try:
+                tz_index = _TIMEZONES.index(cfg.location.timezone)
+            except ValueError:
+                tz_index = Gtk.INVALID_LIST_POSITION
+            self._timezone_row.set_selected(tz_index)
 
             # Reshape the min/max adjustments so neither row can be dragged
             # past the other -- see module docstring.
@@ -242,6 +268,8 @@ class PreferencesDialog(Adw.PreferencesDialog):
                 self._transition_row.set_value(cfg.transition_seconds)
             if not self._rule_transition_editing:
                 self._rule_transition_row.set_value(cfg.rule_transition_seconds)
+            if not self._manual_transition_editing:
+                self._manual_transition_row.set_value(cfg.manual_transition_seconds)
             if not self._tick_editing:
                 self._tick_row.set_value(cfg.tick_interval_seconds)
         finally:
@@ -261,12 +289,6 @@ class PreferencesDialog(Adw.PreferencesDialog):
     def _on_longitude_focus_leave(self, _ctrl: Gtk.EventControllerFocus) -> None:
         self._longitude_editing = False
 
-    def _on_timezone_focus_enter(self, _ctrl: Gtk.EventControllerFocus) -> None:
-        self._timezone_editing = True
-
-    def _on_timezone_focus_leave(self, _ctrl: Gtk.EventControllerFocus) -> None:
-        self._timezone_editing = False
-
     def _on_latitude_changed(self, row: Adw.SpinRow, _pspec: GObject.ParamSpec) -> None:
         if self._rendering:
             return
@@ -277,20 +299,13 @@ class PreferencesDialog(Adw.PreferencesDialog):
             return
         self._write_location(longitude=row.get_value())
 
-    def _on_timezone_apply(self, row: Adw.EntryRow) -> None:
+    def _on_timezone_changed(self, row: Adw.ComboRow, _pspec: GObject.ParamSpec) -> None:
         if self._rendering:
             return
-        cfg = self._state.config
-        if cfg is None:
+        index = row.get_selected()
+        if index == Gtk.INVALID_LIST_POSITION:
             return
-        text = row.get_text().strip()
-        if text not in _TIMEZONES:
-            # Refuse in the dialog rather than sending an invalid timezone to
-            # the daemon: revert the entry to the last known-good value.
-            row.set_text(cfg.location.timezone)
-            self._state.set_error(f"{text!r} is not a known IANA timezone")
-            return
-        self._write_location(timezone=text)
+        self._write_location(timezone=_TIMEZONES[index])
 
     def _write_location(self, **kwargs) -> None:
         cfg = self._state.config
@@ -343,6 +358,12 @@ class PreferencesDialog(Adw.PreferencesDialog):
     def _on_rule_transition_focus_leave(self, _ctrl: Gtk.EventControllerFocus) -> None:
         self._rule_transition_editing = False
 
+    def _on_manual_transition_focus_enter(self, _ctrl: Gtk.EventControllerFocus) -> None:
+        self._manual_transition_editing = True
+
+    def _on_manual_transition_focus_leave(self, _ctrl: Gtk.EventControllerFocus) -> None:
+        self._manual_transition_editing = False
+
     def _on_tick_focus_enter(self, _ctrl: Gtk.EventControllerFocus) -> None:
         self._tick_editing = True
 
@@ -365,6 +386,16 @@ class PreferencesDialog(Adw.PreferencesDialog):
             return
         self._state.apply_config(
             dataclasses.replace(cfg, rule_transition_seconds=row.get_value())
+        )
+
+    def _on_manual_transition_changed(self, row: Adw.SpinRow, _pspec: GObject.ParamSpec) -> None:
+        if self._rendering:
+            return
+        cfg = self._state.config
+        if cfg is None:
+            return
+        self._state.apply_config(
+            dataclasses.replace(cfg, manual_transition_seconds=row.get_value())
         )
 
     def _on_tick_changed(self, row: Adw.SpinRow, _pspec: GObject.ParamSpec) -> None:

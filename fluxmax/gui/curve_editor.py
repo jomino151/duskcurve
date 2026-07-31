@@ -6,6 +6,8 @@ insert and delete keypoints. This module is gi-dependent (unlike the pure
 code, never by `fluxmax.gui.__init__` or a pure module.
 """
 
+from __future__ import annotations
+
 from collections.abc import Callable, Sequence
 from datetime import datetime
 
@@ -13,8 +15,28 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
+gi.require_version("Adw", "1")
 
-from gi.repository import Gdk, GObject, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, GObject, Gtk  # noqa: E402
+
+# `gi.require_foreign("cairo")` registers the PyGObject <-> pycairo foreign
+# struct converter, which is what lets a `Gtk.DrawingArea` draw-func receive
+# a `cairo.Context` at all. It depends on the `gi._gi_cairo` extension module,
+# which ships in the separate `python3-gi-cairo` system package -- not in
+# `python3-cairo` (pycairo itself). That package can be missing even when
+# pycairo is installed, and `require_foreign` raises ImportError in that case
+# rather than returning a falsy result. This module is imported at GUI
+# start-up (via schedule_view -> window -> app), so letting that exception
+# propagate takes the *entire application* down over one drawing widget.
+# Detect it instead and degrade just this widget -- see CurveEditor below.
+try:
+    gi.require_foreign("cairo")
+    import cairo
+
+    CAIRO_AVAILABLE = True
+except ImportError:
+    cairo = None  # type: ignore[assignment]
+    CAIRO_AVAILABLE = False
 
 from fluxmax.color import kelvin_to_rgb  # noqa: E402
 from fluxmax.daemon.config import KeypointConfig  # noqa: E402
@@ -46,11 +68,20 @@ _CURVE_SAMPLE_STEP_PX = 2.0
 _HOUR_LABEL_STEP = 3
 
 
-class CurveEditor(Gtk.DrawingArea):
-    """A draggable, editable rendering of a day's colour-temperature curve."""
+class CurveEditor(Gtk.Box):
+    """A draggable, editable rendering of a day's colour-temperature curve.
+
+    Wraps an internal `Gtk.DrawingArea` that does the actual cairo-based
+    rendering and gesture handling. If `CAIRO_AVAILABLE` is False (the
+    `python3-gi-cairo` system package is missing), there is no way to
+    receive a `cairo.Context` from GTK at all, so no drawing area is
+    created: instead this widget shows an explanatory status page, and
+    `set_curve()` becomes a safe no-op. Callers (schedule_view) don't need
+    to know which mode they're in -- the public API is identical either way.
+    """
 
     def __init__(self, on_keypoints_changed: Callable[[tuple[KeypointConfig, ...]], None]) -> None:
-        super().__init__()
+        super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self._on_keypoints_changed = on_keypoints_changed
 
         self._kps: tuple[KeypointConfig, ...] = ()
@@ -67,26 +98,35 @@ class CurveEditor(Gtk.DrawingArea):
         self._drag_start_y = 0.0
         self._drag_live_kps: tuple[KeypointConfig, ...] = ()
 
-        self.set_content_width(600)
-        self.set_content_height(320)
-        self.set_focusable(True)
-        self.set_draw_func(self._on_draw)
+        self._area: Gtk.DrawingArea | None = None
+
+        if not CAIRO_AVAILABLE:
+            self.append(_build_cairo_unavailable_page())
+            return
+
+        area = Gtk.DrawingArea()
+        area.set_content_width(600)
+        area.set_content_height(320)
+        area.set_focusable(True)
+        area.set_draw_func(self._on_draw)
+        self._area = area
+        self.append(area)
 
         drag = Gtk.GestureDrag.new()
         drag.connect("drag-begin", self._on_drag_begin)
         drag.connect("drag-update", self._on_drag_update)
         drag.connect("drag-end", self._on_drag_end)
-        self.add_controller(drag)
+        area.add_controller(drag)
 
         primary_click = Gtk.GestureClick.new()
         primary_click.set_button(Gdk.BUTTON_PRIMARY)
         primary_click.connect("pressed", self._on_primary_pressed)
-        self.add_controller(primary_click)
+        area.add_controller(primary_click)
 
         secondary_click = Gtk.GestureClick.new()
         secondary_click.set_button(Gdk.BUTTON_SECONDARY)
         secondary_click.connect("pressed", self._on_secondary_pressed)
-        self.add_controller(secondary_click)
+        area.add_controller(secondary_click)
 
     # -- public API -------------------------------------------------------
 
@@ -98,19 +138,22 @@ class CurveEditor(Gtk.DrawingArea):
         max_kelvin: float,
         now: datetime,
     ) -> None:
+        if self._area is None:
+            return  # degraded mode: nothing to draw, no-op by design
         self._kps = tuple(kps)
         self._ctx = ctx
         self._min_kelvin = min_kelvin
         self._max_kelvin = max_kelvin
         self._now = now
-        self.queue_draw()
+        self._area.queue_draw()
 
     # -- geometry helpers ---------------------------------------------------
 
     def _viewport(self) -> Viewport:
+        assert self._area is not None
         return Viewport(
-            width=float(self.get_width() or self.get_content_width()),
-            height=float(self.get_height() or self.get_content_height()),
+            width=float(self._area.get_width() or self._area.get_content_width()),
+            height=float(self._area.get_height() or self._area.get_content_height()),
             min_kelvin=self._min_kelvin,
             max_kelvin=self._max_kelvin,
         )
@@ -133,13 +176,13 @@ class CurveEditor(Gtk.DrawingArea):
         """
         changed = new_kps != self._kps
         self._kps = new_kps
-        self.queue_draw()
+        self._area.queue_draw()
         if changed:
             self._on_keypoints_changed(new_kps)
 
     # -- drawing --------------------------------------------------------
 
-    def _on_draw(self, _area: Gtk.DrawingArea, cr, width: int, height: int) -> None:
+    def _on_draw(self, _area: Gtk.DrawingArea, cr: cairo.Context, width: int, height: int) -> None:
         if not self._kps or self._ctx is None or self._now is None:
             return
         vp = Viewport(
@@ -268,7 +311,7 @@ class CurveEditor(Gtk.DrawingArea):
         self._drag_start_x = x
         self._drag_start_y = y
         self._busy = True
-        self.queue_draw()
+        self._area.queue_draw()
 
     def _on_drag_update(self, _gesture: Gtk.GestureDrag, offset_x: float, offset_y: float) -> None:
         if not self._busy or self._drag_index is None or self._ctx is None:
@@ -294,7 +337,7 @@ class CurveEditor(Gtk.DrawingArea):
                 kps = shift_keypoint_time(kps, index, delta_min)
 
         self._drag_live_kps = kps
-        self.queue_draw()
+        self._area.queue_draw()
 
     def _on_drag_end(self, _gesture: Gtk.GestureDrag, _offset_x: float, _offset_y: float) -> None:
         if not self._busy:
@@ -315,7 +358,7 @@ class CurveEditor(Gtk.DrawingArea):
             # config change with stale data. Abandon this drag's edit: keep
             # the externally-delivered keypoints, don't notify, just redraw
             # so the user sees the authoritative state.
-            self.queue_draw()
+            self._area.queue_draw()
             return
 
         self._apply(final)
@@ -384,7 +427,7 @@ class CurveEditor(Gtk.DrawingArea):
 
         popover = Gtk.Popover()
         popover.set_child(box)
-        popover.set_parent(self)
+        popover.set_parent(self._area)
         # Gdk.Rectangle(x=..., y=..., width=..., height=...) kwarg construction
         # is deprecated in this PyGObject version and SILENTLY zeroes every
         # field instead of raising -- verified live. Must build then assign
@@ -425,6 +468,25 @@ class CurveEditor(Gtk.DrawingArea):
         delete_button.connect("clicked", on_delete_clicked)
         popover.connect("closed", lambda _p: popover.unparent())
         popover.popup()
+
+
+def _build_cairo_unavailable_page() -> Gtk.Widget:
+    """The fallback shown in place of the curve drawing when cairo is unavailable.
+
+    Names the actual fix rather than just saying "unavailable" -- the user
+    (or whoever they ask for help) should be able to act on this message
+    without going spelunking through logs.
+    """
+    status = Adw.StatusPage()
+    status.set_icon_name("dialog-warning-symbolic")
+    status.set_title("Curve editor unavailable")
+    status.set_description(
+        "The 'python3-gi-cairo' system package is missing, so this widget "
+        "cannot draw. Install it and restart flux-max:\n"
+        "sudo apt install python3-gi-cairo"
+    )
+    status.set_vexpand(True)
+    return status
 
 
 def _minutes_to_hhmm(minutes: float) -> str:
