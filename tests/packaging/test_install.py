@@ -157,6 +157,20 @@ def test_reinstall_does_not_overwrite_the_recorded_night_light_value(sandbox):
     ).read_text()
 
 
+def test_a_failed_night_light_read_records_nothing(sandbox):
+    """Regression guard for Critical 2: a failed read must not be recorded as
+    a false 'off', because the uninstaller would then confidently (and
+    wrongly) turn Night Light off."""
+    sandbox.env["STUB_GSETTINGS_GET_FAIL"] = "1"
+    sandbox.run("install.sh", "--no-start")
+    state = (sandbox.data / "fluxmax" / "install-state").read_text()
+    assert "night_light_was_enabled" not in state
+
+    sandbox.env["STUB_GSETTINGS_GET_FAIL"] = "0"
+    sandbox.run("uninstall.sh")
+    assert not any(c.startswith("gsettings set") for c in sandbox.stub_log())
+
+
 def test_installs_the_icon_and_desktop_file(sandbox):
     sandbox.run("install.sh", "--no-start")
     icon = sandbox.data / "icons" / "hicolor" / "scalable" / "apps" / "org.fluxmax.gui.svg"

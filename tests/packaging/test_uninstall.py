@@ -118,6 +118,20 @@ def test_closing_message_mentions_the_logout(sandbox):
     assert "log out" in out.lower()
 
 
+def test_completes_when_gsettings_set_fails(sandbox):
+    """Regression guard for Critical 1: a failing Night Light restore must not
+    leave the extension, symlinks or venv behind un-recoverably."""
+    sandbox.run("install.sh")
+    sandbox.env["STUB_GSETTINGS_SET_FAIL"] = "1"
+    proc = sandbox.run("uninstall.sh")
+    assert proc.returncode == 0
+    assert not (sandbox.data / "gnome-shell" / "extensions" / "focused-window@fluxmax").exists()
+    for name in ("fluxmax-daemon", "fluxmax-gui", "fluxmax-apply"):
+        assert not (sandbox.bin / name).exists()
+    assert not (sandbox.data / "fluxmax").exists()
+    assert "night light" in proc.stderr.lower()
+
+
 def test_help_exits_zero_without_removing_anything(sandbox):
     sandbox.run("install.sh", "--no-start")
     proc = sandbox.run("uninstall.sh", "--help")

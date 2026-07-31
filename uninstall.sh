@@ -49,8 +49,12 @@ fi
 
 # --- 3. restore Night Light --------------------------------------------------
 if previous="$(state_get night_light_was_enabled)"; then
-    gsettings set "$NIGHT_LIGHT_SCHEMA" "$NIGHT_LIGHT_KEY" "$previous"
-    log "Restored Night Light to $previous"
+    if gsettings set "$NIGHT_LIGHT_SCHEMA" "$NIGHT_LIGHT_KEY" "$previous"; then
+        log "Restored Night Light to $previous"
+    else
+        warn "could not restore Night Light to $previous -- set it yourself in" \
+             "Settings > Displays."
+    fi
 else
     warn "no record of your pre-install Night Light setting, so it has been left" \
          "as it is. Set it yourself in Settings > Displays if flux-max turned it off."

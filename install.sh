@@ -104,9 +104,13 @@ state_set install_mode "$INSTALL_MODE"
 # off as its first act, so recording afterwards would capture flux-max's own
 # doing. On a re-install an existing value is kept for the same reason.
 if ! state_get night_light_was_enabled >/dev/null; then
-    current="$(gsettings get "$NIGHT_LIGHT_SCHEMA" "$NIGHT_LIGHT_KEY" 2>/dev/null || echo false)"
-    state_set night_light_was_enabled "$current"
-    log "Recorded Night Light = $current for uninstall"
+    if current="$(gsettings get "$NIGHT_LIGHT_SCHEMA" "$NIGHT_LIGHT_KEY" 2>/dev/null)"; then
+        state_set night_light_was_enabled "$current"
+        log "Recorded Night Light = $current for uninstall"
+    else
+        warn "could not read your Night Light setting; the uninstaller will leave it" \
+             "alone rather than guess."
+    fi
 fi
 
 # --- 6. icon + desktop file --------------------------------------------------
