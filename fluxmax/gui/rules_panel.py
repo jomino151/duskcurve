@@ -71,6 +71,14 @@ log = logging.getLogger("fluxmax.gui.rules_panel")
 _ACTIONS = ("disable", "force_day", "fixed")
 _BUILTIN_SCOPES = ("all", "window_monitor")
 
+_GLOB_HINT = (
+    "Case-sensitive shell glob, e.g. org.gnome.Nautilus or Gimp-*. "
+    "The app ID is the GTK application ID, else the Flatpak sandbox ID, else "
+    "WM_CLASS — so it is often not the app's visible name. Print the exact ID "
+    "for any window with:\n"
+    "gdbus monitor --session --dest org.fluxmax.WindowWatcher"
+)
+
 # Only used when there is no config to read max_kelvin from (the daemon has
 # not answered yet). The daemon resolves force_day with
 # day_kelvin=config.max_kelvin -- see Orchestrator.tick/status -- so this
@@ -262,12 +270,22 @@ class _RuleDialog(Adw.Dialog):
         page.set_margin_start(12)
         page.set_margin_end(12)
 
-        group = Adw.PreferencesGroup()
+        # The glob gets its own group purely so the hint below can render:
+        # Adw.EntryRow is a PreferencesRow, not an ActionRow, so it has no
+        # subtitle of its own and a group description is the only place to put
+        # per-field text. Two things bite here and neither is guessable from
+        # the field alone -- matching does not fold case on Linux, and the app
+        # id is whichever of three unrelated naming schemes the extension found
+        # first (see extension.js) -- so point at the command that prints the
+        # exact string rather than letting people guess it.
+        match_group = Adw.PreferencesGroup(description=_GLOB_HINT)
 
         self._glob_row = Adw.EntryRow(title="App ID glob (empty = any app)")
         if rule is not None and rule.match_app_glob:
             self._glob_row.set_text(rule.match_app_glob)
-        group.add(self._glob_row)
+        match_group.add(self._glob_row)
+
+        group = Adw.PreferencesGroup()
 
         self._fullscreen_row = Adw.SwitchRow(title="Fullscreen only")
         self._fullscreen_row.set_active(rule.match_fullscreen if rule is not None else False)
@@ -300,6 +318,7 @@ class _RuleDialog(Adw.Dialog):
         self._scope_labels = scope_labels
         self._update_kelvin_sensitivity()
 
+        page.append(match_group)
         page.append(group)
 
         self._error_label = Gtk.Label(label="")
