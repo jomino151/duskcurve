@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# flux-max installer. Rootless except for one prompted `sudo apt` step.
+# Idempotent: re-running is the supported upgrade path.
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+# shellcheck source=scripts/lib.sh
+source "$REPO_DIR/scripts/lib.sh"
+
+INSTALL_MODE="copy"
+START_SERVICE=1
+
+usage() {
+    cat <<'EOF'
+Usage: ./install.sh [--dev] [--no-start]
+
+  --dev       Editable install (pip -e) and symlink the extension, for
+              working on flux-max itself. The default copies instead, so
+              the install survives the repo being moved or deleted.
+  --no-start  Install everything but do not enable or start the daemon.
+  -h, --help  Show this message.
+EOF
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --dev)      INSTALL_MODE="dev" ;;
+        --no-start) START_SERVICE=0 ;;
+        -h|--help)  usage; exit 0 ;;
+        *)          usage >&2; die "unknown option: $1" ;;
+    esac
+    shift
+done
+
+# --- 1. preflight ------------------------------------------------------------
+log "Checking prerequisites"
+"$FLUXMAX_PYTHON" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)' \
+    || die "python 3.12 or newer is required"
+"$FLUXMAX_PYTHON" -c 'import gi' 2>/dev/null \
+    || die "the system PyGObject (python3-gi) is missing: sudo apt install python3-gi"
+
+case ":$PATH:" in
+    *":$FLUXMAX_BIN_DIR:"*) ;;
+    *) warn "$FLUXMAX_BIN_DIR is not on your PATH -- add it to ~/.profile, or the" \
+            "fluxmax-gui command and the daemon unit will not resolve." ;;
+esac
+
+if "$FLUXMAX_PYTHON" -m pip show fluxmax >/dev/null 2>&1; then
+    warn "an older 'pip install --user' copy of flux-max is installed and will shadow" \
+         "this one. Remove it with: $FLUXMAX_PYTHON -m pip uninstall fluxmax --break-system-packages"
+fi
+
+# --- 2. the cairo bridge -----------------------------------------------------
+# Separate package from python3-cairo, and Ubuntu's python3-gi does not pull it
+# in. Without it the curve editor -- the centrepiece of the Schedule view --
+# degrades to a status page while everything else looks fine.
+if ! "$FLUXMAX_PYTHON" -c 'import gi; gi.require_foreign("cairo")' 2>/dev/null; then
+    log "The curve editor needs the python3-gi-cairo system package, which is missing."
+    printf '    Install it now with sudo? [y/N] '
+    read -r reply || reply=""
+    case "$reply" in
+        [yY]*) sudo apt install -y python3-gi-cairo || warn "apt failed; continuing without it" ;;
+        *)     warn "continuing without python3-gi-cairo -- the curve editor will show an" \
+                    "install hint instead of the curve. Fix later with:" \
+                    "sudo apt install python3-gi-cairo" ;;
+    esac
+fi
+
+# --- 3. venv + package -------------------------------------------------------
+if [ ! -x "$FLUXMAX_VENV/bin/pip" ]; then
+    log "Creating the virtualenv at $FLUXMAX_VENV"
+    mkdir -p "$FLUXMAX_HOME"
+    # --system-site-packages so the venv inherits the system gi and the cairo
+    # bridge; neither is meaningfully pip-installable.
+    "$FLUXMAX_PYTHON" -m venv --system-site-packages "$FLUXMAX_VENV"
+fi
+
+log "Installing flux-max ($INSTALL_MODE)"
+if [ "$INSTALL_MODE" = "dev" ]; then
+    "$FLUXMAX_VENV/bin/pip" install --upgrade -e "$REPO_DIR"
+else
+    "$FLUXMAX_VENV/bin/pip" install --upgrade "$REPO_DIR"
+fi
+
+# --- 4. console scripts ------------------------------------------------------
+mkdir -p "$FLUXMAX_BIN_DIR"
+for script in "${CONSOLE_SCRIPTS[@]}"; do
+    target="$FLUXMAX_BIN_DIR/$script"
+    if [ -e "$target" ] && [ ! -L "$target" ]; then
+        die "$target exists and is not a symlink -- refusing to overwrite it"
+    fi
+    ln -sfn "$FLUXMAX_VENV/bin/$script" "$target"
+done
+log "Linked ${CONSOLE_SCRIPTS[*]} into $FLUXMAX_BIN_DIR"
+
+state_set install_mode "$INSTALL_MODE"
