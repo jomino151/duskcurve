@@ -626,7 +626,9 @@ def test_theme_round_trips_through_dump_and_load():
             light_offset_min=15,
             dark_from="21:30",
             dark_offset_min=0,
-            light=ThemeVariant("prefer-light", "Yaru-viridian", "Yaru", "Yaru-viridian", "", ""),
+            light=ThemeVariant(
+                "prefer-light", "Yaru-viridian", "Yaru", "Yaru-viridian", "Bibata-Modern-Ice", ""
+            ),
             dark=ThemeVariant(
                 "prefer-dark", "Yaru-blue-dark", "Yaru-dark", "", "", "/home/u/night.jpg"
             ),
