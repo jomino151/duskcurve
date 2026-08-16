@@ -52,8 +52,8 @@ class SettingsWriter(Protocol):
 class FakeSettingsWriter:
     """In-memory SettingsWriter for tests.
 
-    `constructed` records every schema a settings object was actually built for,
-    so a test can assert the crash guard held (see rule 2 in the module docstring).
+    `constructed` records every schema set_string was called with, even if it
+    failed, so a test can assert callers checked has_schema first (see rule 2).
     """
 
     def __init__(
@@ -70,9 +70,14 @@ class FakeSettingsWriter:
         return schema not in self._missing
 
     def set_string(self, schema: str, key: str, value: str) -> bool:
+        # Record all attempts to call set_string, even if the schema is missing.
+        # This must come before the missing-schema check so a caller that skips
+        # its has_schema guard becomes observably different from one that doesn't.
+        # The test relies on this to verify ThemeApplier._write checks has_schema
+        # before calling set_string.
+        self.constructed.add(schema)
         if schema in self._missing:
             return False
-        self.constructed.add(schema)
         if (schema, key) in self._unwritable:
             return False
         self.written[(schema, key)] = value
