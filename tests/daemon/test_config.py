@@ -8,11 +8,13 @@ from fluxmax.daemon.config import (
     DisplayConfig,
     KeypointConfig,
     Location,
+    ThemeConfig,
     default_config,
     dump_config,
     load_config,
 )
 from fluxmax.daemon.rules import Rule
+from fluxmax.theme import ThemeVariant
 
 
 def test_default_config_values():
@@ -593,3 +595,78 @@ def test_config_written_before_manual_transition_seconds_still_loads():
     assert "manual_seconds" not in text
     cfg = load_config(text)
     assert cfg.manual_transition_seconds == 2.0
+
+
+def _with_theme(body: str) -> str:
+    """A valid config whose theme section is exactly `body`.
+
+    The default dump already contains a [theme] table, so this drops it and
+    everything after it -- appending a second [theme] would be a TOML redefinition
+    error and every test below would fail on "invalid TOML" instead of on the
+    validation rule it is actually checking.
+    """
+    base = dump_config(default_config()).split("[theme]")[0]
+    return base + body
+
+
+def test_theme_defaults_are_off_and_inert():
+    cfg = load_config(dump_config(default_config()))
+    assert cfg.theme.enabled is False
+    assert (cfg.theme.light_from, cfg.theme.dark_from) == ("sunrise", "sunset")
+    assert cfg.theme.light.color_scheme == "prefer-light"
+    assert cfg.theme.dark.gtk_theme == "Yaru-dark"
+
+
+def test_theme_round_trips_through_dump_and_load():
+    cfg = replace(
+        default_config(),
+        theme=ThemeConfig(
+            enabled=True,
+            light_from="wake",
+            light_offset_min=15,
+            dark_from="21:30",
+            dark_offset_min=0,
+            light=ThemeVariant("prefer-light", "Yaru-viridian", "Yaru", "Yaru-viridian", "", ""),
+            dark=ThemeVariant(
+                "prefer-dark", "Yaru-blue-dark", "Yaru-dark", "", "", "/home/u/night.jpg"
+            ),
+        ),
+    )
+    assert load_config(dump_config(cfg)) == cfg
+
+
+def test_missing_theme_section_is_allowed():
+    # Every config written before M8 has no [theme] section and must still load.
+    text = dump_config(default_config())
+    assert "[theme]" in text
+    stripped = text.split("[theme]")[0]
+    assert load_config(stripped).theme == ThemeConfig()
+
+
+def test_bad_theme_anchor_is_rejected():
+    with pytest.raises(ConfigError, match="theme.light_from"):
+        load_config(_with_theme('[theme]\nlight_from = "lunchtime"\n'))
+
+
+def test_bad_color_scheme_is_rejected_at_load_not_silently_ignored_at_write():
+    # Gio's set_string returns False for an out-of-enum value WITHOUT raising, so an
+    # unvalidated typo would present as "the theme just never changes". Catch it here.
+    with pytest.raises(ConfigError, match="color_scheme"):
+        load_config(_with_theme('[theme.light]\ncolor_scheme = "prefer-lite"\n'))
+
+
+def test_relative_wallpaper_path_is_rejected():
+    with pytest.raises(ConfigError, match="absolute"):
+        load_config(_with_theme('[theme.dark]\nwallpaper = "night.jpg"\n'))
+
+
+def test_identical_light_and_dark_anchors_are_rejected():
+    with pytest.raises(ConfigError, match="must differ"):
+        load_config(
+            _with_theme('[theme]\nlight_from = "12:00"\ndark_from = "12:00"\n')
+        )
+
+
+def test_theme_offsets_must_be_integers():
+    with pytest.raises(ConfigError, match="offset"):
+        load_config(_with_theme('[theme]\nlight_offset_min = "soon"\n'))
