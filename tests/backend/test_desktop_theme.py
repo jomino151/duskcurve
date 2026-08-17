@@ -1,3 +1,6 @@
+import subprocess
+import sys
+
 import pytest
 
 from fluxmax.backend.desktop_theme import (
@@ -149,3 +152,41 @@ def test_gio_writer_reports_a_bogus_schema_as_absent():
     assert w.has_schema("org.nonexistent.bogus") is False
     # And set_string on it must return False rather than constructing (and aborting).
     assert w.set_string("org.nonexistent.bogus", "whatever", "x") is False
+
+
+def test_gio_writer_has_key_guard_prevents_process_abort_on_missing_key():
+    """Test that has_key check guards against process abort when calling set_string
+    with a key that doesn't exist in an otherwise valid schema.
+
+    This test runs in a subprocess because without the has_key guard, the call to
+    Gio.Settings.set_string() on a nonexistent key calls g_error() and aborts the
+    process with SIGTRAP (exit 133). We run in a subprocess so that if the guard
+    is ever removed, the test fails cleanly instead of crashing the entire pytest run.
+
+    With the guard present: subprocess exits 0 and returns False.
+    Without the guard: subprocess exits 133 (process abort).
+    """
+    pytest.importorskip("gi.repository.Gio")
+
+    snippet = f"""
+import sys
+from fluxmax.backend.desktop_theme import GioSettingsWriter
+
+w = GioSettingsWriter()
+result = w.set_string("{INTERFACE_SCHEMA}", "no-such-key-xyz", "v")
+sys.exit(0 if result is False else 1)
+"""
+    proc = subprocess.run(
+        [sys.executable, "-c", snippet],
+        capture_output=True,
+        text=True,
+    )
+
+    # The subprocess must exit 0, indicating the has_key guard returned False
+    # and prevented the call from aborting. Exit 133 would mean the guard is gone
+    # and the daemon would be killed by g_error().
+    msg = (
+        f"subprocess exited {proc.returncode} (expected 0, not 133/process-abort). "
+        f"stderr: {proc.stderr}"
+    )
+    assert proc.returncode == 0, msg
