@@ -57,6 +57,13 @@ def test_non_numeric_manual_expiry_falls_back_to_none():
     assert st.display("DP-2").manual_expires_in_s is None
 
 
+def test_theme_status_non_numeric_manual_expiry_falls_back_to_none():
+    """Same tolerant-parsing rule as DisplayStatus, but for the top-level
+    theme block: a wrong-typed manual_expires_in_s must not be trusted."""
+    st = parse_status('{"theme": {"enabled": true, "manual_expires_in_s": "soon"}}')
+    assert st.theme.manual_expires_in_s is None
+
+
 def test_live_kelvin_is_the_eased_value_not_the_manual_target():
     """manual_k is the *target* of a manual override; the display eases toward
     it over manual_transition_seconds. A readout must show current_k, or it

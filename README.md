@@ -110,6 +110,106 @@ action = "force_day"
 scope = "all"
 ```
 
+## Desktop theme switching
+
+Alongside the colour-temperature schedule, flux-max can switch GNOME's light/dark theme at
+solar anchors, driven by the same 2-second tick as everything else rather than by a separate
+scheduled timer. That is the whole point of it: a timer scheduled for a clock instant is never
+retried if it fires while the machine is locked, idle, or suspended, so the theme just stays
+wrong until the next login. The tick re-evaluates "what should the theme be right now" on every
+pass, so a switch missed during suspend, an idle blank, or a locked screen is corrected on the
+very next tick after the machine wakes — no catch-up machinery needed.
+
+It writes up to six things: colour scheme (light/dark), GTK theme, icon theme, shell theme,
+cursor theme, and wallpaper. Each is independently optional — leave a field as `""` (the
+default) and flux-max never touches that setting, light or dark.
+
+**Off by default.** Unlike the colour-temperature filter, which is flux-max's own thing to
+control, a desktop theme is a setting the user may already have chosen deliberately. Enable it
+explicitly with `[theme] enabled = true`.
+
+```toml
+[theme]
+enabled = false          # off by default -- this writes settings flux-max does not own
+light_from = "sunrise"   # event anchor or "HH:MM", same grammar as schedule keypoints
+light_offset_min = 0
+dark_from = "sunset"
+dark_offset_min = 0
+
+[theme.light]
+color_scheme = "prefer-light"
+gtk_theme = "Yaru"
+icon_theme = "Yaru"
+shell_theme = ""          # "" = leave alone
+cursor_theme = ""
+wallpaper = ""
+
+[theme.dark]
+color_scheme = "prefer-dark"
+gtk_theme = "Yaru-dark"
+icon_theme = "Yaru"
+shell_theme = ""
+cursor_theme = ""
+wallpaper = ""
+```
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `enabled` | bool | `false` | Turns theme switching on. Off by default — see above. |
+| `light_from` | event anchor or `"HH:MM"` | `"sunrise"` | When the light variant starts. Same grammar as a schedule keypoint's anchor: `"sunrise"`, `"sunset"`, `"wake"`, `"bedtime"`, or a fixed clock time. |
+| `light_offset_min` | integer | `0` | Minutes to shift `light_from` by (negative = earlier). |
+| `dark_from` | event anchor or `"HH:MM"` | `"sunset"` | When the dark variant starts. Same grammar as `light_from`. |
+| `dark_offset_min` | integer | `0` | Minutes to shift `dark_from` by. |
+| `light.color_scheme` / `dark.color_scheme` | string | `"prefer-light"` / `"prefer-dark"` | GNOME's `color-scheme` key. `""` leaves it alone; otherwise must be a value GNOME accepts. |
+| `light.gtk_theme` / `dark.gtk_theme` | string | `"Yaru"` / `"Yaru-dark"` | GTK theme name. `""` leaves it alone. |
+| `light.icon_theme` / `dark.icon_theme` | string | `"Yaru"` | Icon theme name. `""` leaves it alone. |
+| `light.shell_theme` / `dark.shell_theme` | string | `""` | GNOME Shell theme name, written through the User Themes extension. `""` leaves it alone. |
+| `light.cursor_theme` / `dark.cursor_theme` | string | `""` | Cursor theme name. `""` leaves it alone. |
+| `light.wallpaper` / `dark.wallpaper` | absolute path or `""` | `""` | Wallpaper image path. `""` leaves it alone; a relative path fails config validation. |
+
+`light_from` and `dark_from` must not resolve to the same instant (with the same offset) — that
+would make one of the day's two arcs empty, and there is no sensible theme for a moment that
+never occurs.
+
+Precedence, narrowest-wins:
+
+```
+paused (freeze) > manual theme > theme anchors
+```
+
+Pausing the daemon **freezes** whatever theme is currently applied rather than reverting to a
+neutral state — there is no neutral theme the way there is neutral colour temperature — and
+unpausing re-evaluates immediately, correcting the theme if the day moved on while paused. A
+manual theme set via the D-Bus API or the GUI's Light/Dark buttons overrides the anchors until
+it expires or is cleared. **Window rules (`[[rules]]`) never affect the theme** — they only ever
+touch colour temperature, on whichever display they match.
+
+If you change the theme by hand in GNOME Settings, flux-max deliberately does not fight it: the
+daemon only writes on a mode change, so a hand-picked theme stands until the next light/dark
+boundary, at which point the schedule takes back over as normal.
+
+**flux-max does not restore your previous theme on uninstall** (`./uninstall.sh` does restore
+Night Light, which is different). Night Light has one clear "before" value worth recording —
+on or off — but a theme has no equivalent single fact to snapshot: this is a feature you opted
+into and configured by hand, with six independent elements, so there is no one "previous theme"
+that would be meaningful to restore. Uninstalling simply stops writing; whatever theme was last
+applied stays as it is.
+
+The shell theme needs the [User Themes GNOME Shell
+extension](https://extensions.gnome.org/extension/19/user-themes/)'s
+`org.gnome.shell.extensions.user-theme` schema. Without it, `shell_theme` silently degrades: the
+daemon logs a warning naming the missing schema and applies every other element normally,
+rather than crashing or skipping the whole variant.
+
+A second theme switcher (e.g. `auto-darkmode-switcher`) writes the same dconf keys flux-max's
+`[theme]` feature does, and running both at once fights: the visible result is a theme that
+flips back and forth. `./install.sh` warns if it detects one installed. Disable it before
+enabling `[theme]`:
+
+```bash
+systemctl --user disable --now auto-darkmode-switcher.service auto-darkmode-switcher.timer
+```
+
 ## Install
 
 ```bash
@@ -189,7 +289,7 @@ to have one without the other. `./install.sh` offers to install it for you; if i
 the rest of the GUI still works normally — the curve editor just shows a status page naming
 this fix instead of the curve.
 
-The window has three tabs:
+The window has four tabs:
 
 - **Schedule**: Mode selection (built-in modes or a custom editable curve), wake and bedtime times (HH:MM), a manual temperature slider with colour-temperature presets (Ember, Candle, Dim Incandescent, Incandescent, Halogen, Fluorescent, Sunlight, Daylight), a **Duration** for the override (Until cleared, 15 min, 30 min, 1 hour, 2 hours), and a "Resume schedule" button to clear it. The curve editor occupies the centre of the screen and shows the day's colour-temperature curve with markers for the configured wake/bedtime and solar events (sunrise/sunset).
 
@@ -198,6 +298,14 @@ The window has three tabs:
 Whenever a manual override is running, the group description says so, and — if it was given a duration — counts down: *"Manual override active — 25 min left."* An override set to "Until cleared" says that instead, so a forgotten override never looks like a dead schedule. The duration is chosen per set: the dropdown is a control rather than a readout, so it always starts at "Until cleared" and does not reflect what is currently running. The countdown is the thing that tells you that. Changing the dropdown while an override is already running re-arms that override at the new duration immediately, so you can add or remove a timer without touching the slider.
 
 - **Rules**: The ordered list of app and fullscreen rules (first-match-wins: rules are evaluated top to bottom, and the first match wins). Use "Add rule" to create a new rule, or click the edit icon on an existing rule to change it. Up/down arrows reorder rules; delete removes them with an undo toast. Rules are highlighted if they are currently active on any display, showing which monitors they control.
+
+- **Theme**: Controls for desktop light/dark theme switching (see [Desktop theme
+  switching](#desktop-theme-switching) above). A Light/Dark/Auto toggle row at the top sets a
+  manual override or returns to the anchor schedule. Below it, an "Automatic switching" group
+  holds the enable switch and the light/dark anchors (event or custom `HH:MM`), and two groups,
+  "Light" and "Dark", hold each variant's colour scheme, GTK/icon/shell/cursor theme and
+  wallpaper picker. Editing a theme name here re-applies immediately if that variant is the one
+  currently active, rather than waiting for the next boundary.
 
 ### Curve editing
 

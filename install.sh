@@ -45,6 +45,17 @@ case ":$PATH:" in
             "fluxmax-gui command and the daemon unit will not resolve." ;;
 esac
 
+# A second theme switcher will fight flux-max's [theme] feature: both write the
+# same dconf keys, and the visible result is a theme that flips back and forth.
+# Name-specific and best-effort -- detecting arbitrary third-party switchers is
+# not attempted.
+_other_switcher="$FLUXMAX_DATA_HOME/systemd/user/auto-darkmode-switcher.service"
+if [ -e "$_other_switcher" ]; then
+    warn "auto-darkmode-switcher is installed and will fight flux-max's theme switching."
+    warn "If you enable [theme] in config.toml, disable it first:"
+    warn "  systemctl --user disable --now auto-darkmode-switcher.service auto-darkmode-switcher.timer"
+fi
+
 old_pip_install=0
 if "$FLUXMAX_PYTHON" -m pip show fluxmax >/dev/null 2>&1; then
     old_pip_install=1

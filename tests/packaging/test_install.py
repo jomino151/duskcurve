@@ -323,3 +323,22 @@ def test_fresh_install_does_not_restart_the_daemon_it_just_started(sandbox):
     sandbox.env["STUB_SYSTEMCTL_INACTIVE"] = "1"
     sandbox.run("install.sh")
     assert not any("restart fluxmax-daemon.service" in c for c in sandbox.called("systemctl"))
+
+
+def test_warns_about_a_competing_theme_switcher(sandbox):
+    """auto-darkmode-switcher writes the same dconf keys flux-max's [theme]
+    feature does; both installed at once fight and the visible result is a
+    theme that flips back and forth. warn() (like every other preflight
+    warning in install.sh) goes to stderr, so this checks the combined
+    stream rather than stdout alone."""
+    unit = sandbox.data / "systemd" / "user" / "auto-darkmode-switcher.service"
+    unit.parent.mkdir(parents=True, exist_ok=True)
+    unit.write_text("[Service]\n")
+    result = sandbox.run("install.sh")
+    assert "auto-darkmode-switcher" in (result.stdout + result.stderr)
+    assert result.returncode == 0, "a competing switcher is a warning, never a failure"
+
+
+def test_no_warning_when_no_competing_switcher(sandbox):
+    result = sandbox.run("install.sh")
+    assert "auto-darkmode-switcher" not in (result.stdout + result.stderr)
