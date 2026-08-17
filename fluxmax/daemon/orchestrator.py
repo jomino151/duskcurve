@@ -23,6 +23,7 @@ from fluxmax.schedule import (
     Keypoint,
     solar_events,
 )
+from fluxmax.theme import DARK, LIGHT, ThemeVariant, desired_mode
 
 NEUTRAL_KELVIN = 6500.0
 
@@ -48,7 +49,11 @@ def _hhmm(value: str) -> tuple[int, int]:
 
 class Orchestrator:
     def __init__(
-        self, backend: MutterBackend, config: Config, clock: Callable[[], datetime]
+        self,
+        backend: MutterBackend,
+        config: Config,
+        clock: Callable[[], datetime],
+        theme_applier=None,
     ) -> None:
         self._backend = backend
         self._config = config
@@ -61,6 +66,13 @@ class Orchestrator:
         self._manual: dict[str, tuple[float, datetime | None]] = {}
         self._window: WindowState | None = None
         self._prev_actions: dict[str, RuleAction] = {}
+        # Desktop theme. `_theme_mode` is the mode this daemon last APPLIED, not
+        # the mode that is desired: None means "nothing applied yet", which is
+        # what makes the first tick unconditional (and therefore what makes a
+        # daemon started at 23:00 correct at 23:00:02 instead of at sunrise).
+        self._theme_applier = theme_applier
+        self._theme_mode: str | None = None
+        self._theme_manual: tuple[str, datetime | None] | None = None
         # Every temperature change eases toward its target, but the pace
         # depends on WHAT caused the change, not just that it changed:
         # "schedule" (curve drift, the default/fallback), "manual" (a
@@ -78,6 +90,11 @@ class Orchestrator:
         # output mask applied after easing (see tick), not a temperature
         # target, so both directions are already instant and the display's
         # eased position keeps tracking the schedule while it is off.
+        if config.theme != self._config.theme:
+            # Clearing the applied-mode memory makes the next tick re-apply. Without
+            # it, editing the dark variant while already dark would silently do
+            # nothing until the next sunrise.
+            self._theme_mode = None
         self._config = config
         self._curve = self._build_curve(config)
 
@@ -110,6 +127,17 @@ class Orchestrator:
         # Explicitly clearing (e.g. pressing Resume) is just as deliberate as
         # setting one, so it gets the same manual pacing back to the curve.
         self._mark_pacing(connector, "manual")
+
+    def set_theme(self, mode: str, duration_min: int) -> None:
+        if mode not in (LIGHT, DARK):
+            raise ValueError(f"theme mode must be {LIGHT!r} or {DARK!r}, got {mode!r}")
+        # duration_min <= 0 means "until explicitly cleared": store no expiry at
+        # all, the same convention (and the same past bug) as set_manual_temp.
+        expiry = None if duration_min <= 0 else self._clock() + timedelta(minutes=duration_min)
+        self._theme_manual = (mode, expiry)
+
+    def clear_theme(self) -> None:
+        self._theme_manual = None
 
     def _mark_pacing(self, connector: str, category: str) -> None:
         if connector == "":
@@ -192,6 +220,45 @@ class Orchestrator:
             self._backend.apply_ramp(connector, red, green, blue)
 
         self._last_tick_dt = now
+        self._tick_theme(now, ctx)
+
+    def _theme_manual_mode(self, now: datetime) -> str | None:
+        """The manual theme override in force, evicting it if it has expired."""
+        entry = self._theme_manual
+        if entry is None:
+            return None
+        mode, expiry = entry
+        if expiry is None or now < expiry:
+            return mode
+        self._theme_manual = None
+        return None
+
+    def _tick_theme(self, now: datetime, ctx: DayContext) -> None:
+        theme = self._config.theme
+        if self._theme_applier is None or not theme.enabled:
+            return
+        # Paused FREEZES the theme rather than neutralizing it: neutral gamma is a
+        # meaningful "filter off" state, but there is no neutral theme. _theme_mode
+        # is left untouched, so unpausing re-evaluates and corrects if the day moved on.
+        if self._paused:
+            return
+
+        mode = self._theme_manual_mode(now)
+        if mode is None:
+            mode = desired_mode(
+                now,
+                ctx,
+                _parse_anchor(theme.light_from, theme.light_offset_min),
+                _parse_anchor(theme.dark_from, theme.dark_offset_min),
+            )
+        if mode == self._theme_mode:
+            return
+
+        variant: ThemeVariant = theme.light if mode == LIGHT else theme.dark
+        # The applier logs and reports its own skipped elements; a partly-applied
+        # theme still counts as applied, or every tick would retry forever.
+        self._theme_applier.apply(variant)
+        self._theme_mode = mode
 
     def status(self) -> dict:
         # Side effect worth knowing about: the per-display manual lookup goes
@@ -236,6 +303,13 @@ class Orchestrator:
                     "manual_expires_in_s": manual_expires_in_s,
                 }
             )
+        manual_theme = self._theme_manual
+        manual_theme_mode = None
+        manual_theme_expires_in_s = None
+        if manual_theme is not None:
+            manual_theme_mode, expiry = manual_theme
+            if expiry is not None:
+                manual_theme_expires_in_s = max(0, round((expiry - now).total_seconds()))
         return {
             "mode": self._config.mode,
             "paused": self._paused,
@@ -247,6 +321,12 @@ class Orchestrator:
                 "app_id": self._window.app_id,
                 "fullscreen": self._window.fullscreen,
                 "monitor_connector": self._window.monitor_connector,
+            },
+            "theme": {
+                "enabled": self._config.theme.enabled,
+                "mode": self._theme_mode,
+                "manual": manual_theme_mode,
+                "manual_expires_in_s": manual_theme_expires_in_s,
             },
         }
 
