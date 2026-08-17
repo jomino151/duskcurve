@@ -12,11 +12,14 @@ TWO RULES THIS MODULE EXISTS TO ENFORCE -- do not "simplify" either away:
    fires unattended. dconf writes land regardless of lock state. This is the
    failure mode the whole milestone was written to design out (design 2.2).
 
-2. NEVER call Gio.Settings.new() without checking the schema exists first.
-   g_settings_new() on an uninstalled schema calls g_error(), which ABORTS THE
-   PROCESS -- SIGTRAP, core dumped, no Python exception to catch. On a machine
-   without gnome-shell-extensions an unguarded shell-theme write would take the
-   whole daemon down.
+2. NEVER call Gio.Settings.new() or Settings.set_string() without checking that
+   BOTH the schema AND the key exist first. g_settings_new() on an uninstalled
+   schema, and set_string() on a key the schema doesn't have, both call
+   g_error(), which ABORTS THE PROCESS -- SIGTRAP, core dumped, no Python
+   exception to catch. On a machine without gnome-shell-extensions an
+   unguarded shell-theme write would take the whole daemon down; on a system
+   whose gsettings-desktop-schemas predates the key (e.g. `color-scheme`
+   before GNOME 42) an unguarded key write does the same.
 """
 
 import logging
@@ -60,11 +63,13 @@ class FakeSettingsWriter:
         self,
         missing_schemas: "frozenset[str] | set[str]" = frozenset(),
         unwritable: "frozenset[tuple[str, str]] | set[tuple[str, str]]" = frozenset(),
+        missing_keys: "frozenset[tuple[str, str]] | set[tuple[str, str]]" = frozenset(),
     ) -> None:
         self.written: dict[tuple[str, str], str] = {}
         self.constructed: set[str] = set()
         self._missing = set(missing_schemas)
         self._unwritable = set(unwritable)
+        self._missing_keys = set(missing_keys)
 
     def has_schema(self, schema: str) -> bool:
         return schema not in self._missing
@@ -77,6 +82,8 @@ class FakeSettingsWriter:
         # before calling set_string.
         self.constructed.add(schema)
         if schema in self._missing:
+            return False
+        if (schema, key) in self._missing_keys:
             return False
         if (schema, key) in self._unwritable:
             return False
@@ -99,17 +106,26 @@ class GioSettingsWriter:
         return Gio
 
     def has_schema(self, schema: str) -> bool:
+        return self._lookup_schema(schema) is not None
+
+    def _lookup_schema(self, schema: str):
         gio = self._gio()
-        return gio.SettingsSchemaSource.get_default().lookup(schema, True) is not None
+        return gio.SettingsSchemaSource.get_default().lookup(schema, True)
 
     def set_string(self, schema: str, key: str, value: str) -> bool:
-        # Guarded here as well as by the caller: this is the line that would
-        # otherwise abort the process, so it defends itself.
-        settings = self._cache.get(schema)
-        if settings is None:
-            if not self.has_schema(schema):
+        # Guarded here as well as by the caller: these are the lines that would
+        # otherwise abort the process, so they defend themselves. A missing
+        # schema OR a missing key both call g_error() and abort -- see rule 2.
+        cached = self._cache.get(schema)
+        if cached is None:
+            schema_obj = self._lookup_schema(schema)
+            if schema_obj is None:
                 return False
-            settings = self._cache[schema] = self._gio().Settings.new(schema)
+            settings = self._gio().Settings.new(schema)
+            cached = self._cache[schema] = (schema_obj, settings)
+        schema_obj, settings = cached
+        if not schema_obj.has_key(key):
+            return False
         return bool(settings.set_string(key, value))
 
 
@@ -134,14 +150,24 @@ class ThemeApplier:
         return skipped
 
     def _write(self, element: str, schema: str, key: str, value: str, skipped: list[str]) -> None:
-        if not self._writer.has_schema(schema):
-            log.warning(
-                "skipping %s: GSettings schema %s is not installed", element, schema
-            )
-            skipped.append(element)
-            return
-        if not self._writer.set_string(schema, key, value):
-            log.warning("skipping %s: %s %s rejected the value %r", element, schema, key, value)
+        # The writer's own guards return False, never raise, for every failure
+        # this module anticipates -- but a raise IS possible for failures it
+        # doesn't (no compiled schemas at all, a broken gi install), and one
+        # element's raise must never cost the rest of the apply. See finding 2.
+        try:
+            if not self._writer.has_schema(schema):
+                log.warning(
+                    "skipping %s: GSettings schema %s is not installed", element, schema
+                )
+                skipped.append(element)
+                return
+            if not self._writer.set_string(schema, key, value):
+                log.warning(
+                    "skipping %s: %s %s rejected the value %r", element, schema, key, value
+                )
+                skipped.append(element)
+        except Exception:
+            log.warning("skipping %s: writing %s %s raised", element, schema, key, exc_info=True)
             skipped.append(element)
 
     def _apply_wallpaper(self, path: str, skipped: list[str]) -> None:
@@ -155,15 +181,19 @@ class ThemeApplier:
             log.warning("skipping wallpaper: %s does not exist", path)
             skipped.append("wallpaper")
             return
-        if not self._writer.has_schema(BACKGROUND_SCHEMA):
-            log.warning("skipping wallpaper: schema %s is not installed", BACKGROUND_SCHEMA)
-            skipped.append("wallpaper")
-            return
-        uri = Path(path).as_uri()
-        # BOTH keys, deliberately: GNOME chooses between them by color-scheme,
-        # which this same apply() is also setting.
-        ok_light = self._writer.set_string(BACKGROUND_SCHEMA, "picture-uri", uri)
-        ok_dark = self._writer.set_string(BACKGROUND_SCHEMA, "picture-uri-dark", uri)
-        if not (ok_light and ok_dark):
-            log.warning("wallpaper only partly applied: %s", uri)
+        try:
+            if not self._writer.has_schema(BACKGROUND_SCHEMA):
+                log.warning("skipping wallpaper: schema %s is not installed", BACKGROUND_SCHEMA)
+                skipped.append("wallpaper")
+                return
+            uri = Path(path).as_uri()
+            # BOTH keys, deliberately: GNOME chooses between them by color-scheme,
+            # which this same apply() is also setting.
+            ok_light = self._writer.set_string(BACKGROUND_SCHEMA, "picture-uri", uri)
+            ok_dark = self._writer.set_string(BACKGROUND_SCHEMA, "picture-uri-dark", uri)
+            if not (ok_light and ok_dark):
+                log.warning("wallpaper only partly applied: %s", uri)
+                skipped.append("wallpaper")
+        except Exception:
+            log.warning("skipping wallpaper: writing %s raised", BACKGROUND_SCHEMA, exc_info=True)
             skipped.append("wallpaper")

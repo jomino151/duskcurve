@@ -208,6 +208,22 @@ def test_status_reports_the_theme():
     assert 1700 <= theme["manual_expires_in_s"] <= 1800
 
 
+def test_status_evicts_an_expired_manual_theme_override_while_paused():
+    # _tick_theme returns at the pause guard before _theme_manual_mode(now) runs
+    # (which is where eviction normally happens), so status() must evict on its
+    # own read path too -- otherwise a paused daemon reports a stale "manual"
+    # override forever instead of the None the GUI expects. See finding 5.
+    clock = FakeClock(_dt(13, 0))
+    orch, _applier = _new(_cfg(), clock)
+    orch.tick()
+    orch.set_theme(DARK, 30)
+    orch.set_paused(True)
+    clock.advance(31 * 60)
+    theme = orch.status()["theme"]
+    assert theme["manual"] is None
+    assert theme["manual_expires_in_s"] is None
+
+
 def test_custom_anchors_are_honoured():
     cfg = _cfg(light_from="07:30", dark_from="19:00")
     clock = FakeClock(_dt(7, 0))

@@ -75,6 +75,29 @@ def test_identical_anchors_return_dark_without_raising():
     assert desired_mode(_dt(9, 0), ctx, same, same) == DARK
 
 
+def test_dst_spring_forward_day_still_flips_exactly_twice():
+    # 2026-03-29 is Europe/Berlin's spring-forward day: the local wall clock
+    # jumps from 02:00 straight to 03:00, so 02:xx does not exist as a local
+    # time. Anchors here straddle that missing hour (light starts 01:30, dark
+    # starts 03:30) to make sure desired_mode's clock-anchor comparisons still
+    # behave sanely across the gap instead of raising or double-flipping.
+    def dt(hour: int, minute: int) -> datetime:
+        return datetime(2026, 3, 29, hour, minute, tzinfo=BERLIN)
+
+    ctx = DayContext(
+        sunrise=dt(6, 0),
+        sunset=dt(19, 0),
+        wake=dt(10, 0),
+        bedtime=dt(23, 0),
+    )
+    light_at, dark_at = ClockAnchor(1, 30), ClockAnchor(3, 30)
+
+    modes = [desired_mode(dt(m // 60, m % 60), ctx, light_at, dark_at) for m in range(1440)]
+    flips = sum(1 for a, b in zip(modes, modes[1:], strict=False) if a != b)
+    assert flips == 2
+    assert modes[0] == DARK and modes[-1] == DARK
+
+
 def test_theme_variant_defaults_to_all_empty():
     v = ThemeVariant()
     assert (v.color_scheme, v.gtk_theme, v.icon_theme) == ("", "", "")

@@ -5,6 +5,7 @@ fluxmax.schedule / fluxmax.daemon.config / fluxmax.daemon.overrides. No
 gi/D-Bus/GLib import in this module.
 """
 
+import logging
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -24,6 +25,8 @@ from fluxmax.schedule import (
     solar_events,
 )
 from fluxmax.theme import DARK, LIGHT, ThemeVariant, desired_mode
+
+log = logging.getLogger("fluxmax.daemon")
 
 NEUTRAL_KELVIN = 6500.0
 
@@ -94,6 +97,16 @@ class Orchestrator:
             # Clearing the applied-mode memory makes the next tick re-apply. Without
             # it, editing the dark variant while already dark would silently do
             # nothing until the next sunrise.
+            #
+            # Deliberately whole-section, not per-variant: editing the LIGHT
+            # variant while DARK is active still clears _theme_mode and re-applies
+            # dark on the next tick, overwriting a theme the user may have
+            # hand-picked in between. Narrowing this to "only clear if the ACTIVE
+            # variant changed" would dodge that, but the README already advertises
+            # "any [theme] edit re-applies immediately" and a narrower rule is a
+            # bigger surprise: a user watching the GUI expects a Save to take
+            # effect now, not "maybe, depending on which variant is active
+            # tonight". See finding 6 -- do not change this behaviour.
             self._theme_mode = None
         self._config = config
         self._curve = self._build_curve(config)
@@ -257,7 +270,9 @@ class Orchestrator:
         variant: ThemeVariant = theme.light if mode == LIGHT else theme.dark
         # The applier logs and reports its own skipped elements; a partly-applied
         # theme still counts as applied, or every tick would retry forever.
-        self._theme_applier.apply(variant)
+        skipped = self._theme_applier.apply(variant)
+        if skipped:
+            log.warning("theme applied with skipped elements: %s", skipped)
         self._theme_mode = mode
 
     def status(self) -> dict:
@@ -303,11 +318,15 @@ class Orchestrator:
                     "manual_expires_in_s": manual_expires_in_s,
                 }
             )
-        manual_theme = self._theme_manual
-        manual_theme_mode = None
+        # _theme_manual_mode evicts an expired override as a side effect (same
+        # pattern as _manual_entry above), which matters here: _tick_theme
+        # returns at the pause guard before it runs, so while paused a status()
+        # that read self._theme_manual raw would report a stale "manual: light"
+        # forever instead of the None the GUI expects. See finding 5.
+        manual_theme_mode = self._theme_manual_mode(now)
         manual_theme_expires_in_s = None
-        if manual_theme is not None:
-            manual_theme_mode, expiry = manual_theme
+        if manual_theme_mode is not None and self._theme_manual is not None:
+            expiry = self._theme_manual[1]
             if expiry is not None:
                 manual_theme_expires_in_s = max(0, round((expiry - now).total_seconds()))
         return {

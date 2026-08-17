@@ -147,7 +147,7 @@ wallpaper = ""
 [theme.dark]
 color_scheme = "prefer-dark"
 gtk_theme = "Yaru-dark"
-icon_theme = "Yaru"
+icon_theme = "Yaru-dark"
 shell_theme = ""
 cursor_theme = ""
 wallpaper = ""
@@ -162,7 +162,7 @@ wallpaper = ""
 | `dark_offset_min` | integer | `0` | Minutes to shift `dark_from` by. |
 | `light.color_scheme` / `dark.color_scheme` | string | `"prefer-light"` / `"prefer-dark"` | GNOME's `color-scheme` key. `""` leaves it alone; otherwise must be a value GNOME accepts. |
 | `light.gtk_theme` / `dark.gtk_theme` | string | `"Yaru"` / `"Yaru-dark"` | GTK theme name. `""` leaves it alone. |
-| `light.icon_theme` / `dark.icon_theme` | string | `"Yaru"` | Icon theme name. `""` leaves it alone. |
+| `light.icon_theme` / `dark.icon_theme` | string | `"Yaru"` / `"Yaru-dark"` | Icon theme name. `""` leaves it alone. |
 | `light.shell_theme` / `dark.shell_theme` | string | `""` | GNOME Shell theme name, written through the User Themes extension. `""` leaves it alone. |
 | `light.cursor_theme` / `dark.cursor_theme` | string | `""` | Cursor theme name. `""` leaves it alone. |
 | `light.wallpaper` / `dark.wallpaper` | absolute path or `""` | `""` | Wallpaper image path. `""` leaves it alone; a relative path fails config validation. |
