@@ -163,6 +163,12 @@ class DaemonClient:
     def clear_manual_temp(self, connector: str) -> None:
         self._call("ClearManualTemp", self._variant("(s)", (connector,)))
 
+    def set_theme(self, mode: str, duration_min: int) -> None:
+        self._call("SetTheme", self._variant("(si)", (mode, int(duration_min))))
+
+    def clear_theme(self) -> None:
+        self._call("ClearTheme", None)
+
     # -- polling --------------------------------------------------------
 
     def start_polling(self, interval_seconds: float) -> None:

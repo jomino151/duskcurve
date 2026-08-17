@@ -42,6 +42,7 @@ from fluxmax.gui.prefs import PreferencesDialog  # noqa: E402
 from fluxmax.gui.rules_panel import RulesView  # noqa: E402
 from fluxmax.gui.schedule_view import ScheduleView  # noqa: E402
 from fluxmax.gui.state import AppState  # noqa: E402
+from fluxmax.gui.theme_view import ThemeView  # noqa: E402
 
 log = logging.getLogger("fluxmax.gui.window")
 
@@ -126,6 +127,7 @@ class FluxMaxWindow(Adw.ApplicationWindow):
         self._schedule_view = ScheduleView(state, client)
         self._display_view = DisplayView(state, client)
         self._rules_view = RulesView(state)
+        self._theme_view = ThemeView(state, client)
         self._view_stack.add_titled_with_icon(
             _scrolled(self._schedule_view), "schedule", "Schedule", "alarm-symbolic"
         )
@@ -134,6 +136,9 @@ class FluxMaxWindow(Adw.ApplicationWindow):
         )
         self._view_stack.add_titled_with_icon(
             _scrolled(self._rules_view), "rules", "Rules", "preferences-system-symbolic"
+        )
+        self._view_stack.add_titled_with_icon(
+            _scrolled(self._theme_view), "theme", "Theme", "weather-clear-night-symbolic"
         )
 
         self._view_switcher = Adw.ViewSwitcher(

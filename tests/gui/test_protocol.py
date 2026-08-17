@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from fluxmax.gui.protocol import DisplayStatus, WindowStatus, parse_status
@@ -153,3 +155,32 @@ def test_non_numeric_rule_kelvin_falls_back_to_none():
 def test_empty_app_id_in_window_yields_none():
     st = parse_status('{"per_display":[],"window":{"app_id":"","fullscreen":false}}')
     assert st.window is None
+
+
+def test_theme_status_is_parsed():
+    status = parse_status(
+        json.dumps(
+            {
+                "mode": "reduce_eyestrain",
+                "paused": False,
+                "per_display": [],
+                "theme": {
+                    "enabled": True,
+                    "mode": "dark",
+                    "manual": "light",
+                    "manual_expires_in_s": 900,
+                },
+            }
+        )
+    )
+    assert status.theme.enabled is True
+    assert status.theme.mode == "dark"
+    assert status.theme.manual == "light"
+    assert status.theme.manual_expires_in_s == 900
+
+
+def test_status_without_a_theme_block_still_parses():
+    # An older daemon does not send it. The GUI must default, never raise.
+    status = parse_status(json.dumps({"mode": "classic", "paused": False, "per_display": []}))
+    assert status.theme.enabled is False
+    assert status.theme.mode is None
