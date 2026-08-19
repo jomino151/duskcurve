@@ -212,9 +212,11 @@ class _Daemon:
     # Window watcher
     # ------------------------------------------------------------------
 
-    def _on_window_changed(self, window: "WindowState | None") -> None:
+    def _on_window_changed(
+        self, window: "WindowState | None", unfocused: "tuple[WindowState, ...]" = ()
+    ) -> None:
         """A focus/fullscreen/monitor change arrived from the shell extension."""
-        self.orchestrator.set_window_state(window)
+        self.orchestrator.set_window_state(window, unfocused)
         # Apply immediately rather than waiting up to tick_interval_seconds -- a
         # fullscreen game should not sit warm for two seconds after launching.
         try:

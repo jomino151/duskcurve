@@ -1004,3 +1004,66 @@ def test_pacing_persists_across_ticks_until_convergence_then_resets_to_schedule(
     orch.tick()
     third = _k(orch)
     assert 2000 < third < 2600
+
+
+# ---------------------------------------------------------------------------
+# M9: unfocused fullscreen windows (set_window_state's unfocused=, status()["windows"])
+# ---------------------------------------------------------------------------
+
+
+def test_unfocused_fullscreen_window_drives_its_connector():
+    cfg = replace(
+        default_config(),
+        rules=(
+            Rule(
+                action="disable",
+                match_fullscreen=True,
+                match_unfocused=True,
+                scope="window_monitor",
+            ),
+        ),
+        transition_seconds=0.0,
+    )
+    clock = FakeClock(_dt(23, 0))
+    be, _t, orch = _new(cfg, clock)
+
+    orch.set_window_state(None, [WindowState("mpv", True, "DP-2")])
+    orch.tick()
+    per = {d["connector"]: d for d in orch.status()["per_display"]}
+    assert per["DP-2"]["current_k"] == round(NEUTRAL_KELVIN)
+    assert per["HDMI-1"]["current_k"] != round(NEUTRAL_KELVIN)
+
+
+def test_status_reports_the_unfocused_windows():
+    clock = FakeClock(_dt(23, 0))
+    be, _t, orch = _new(replace(default_config(), rules=()), clock)
+
+    orch.set_window_state(
+        WindowState("gimp", False, "HDMI-1"),
+        [WindowState("mpv", True, "DP-2")],
+    )
+    status = orch.status()
+    assert status["window"]["app_id"] == "gimp"
+    assert status["windows"] == [
+        {"app_id": "gimp", "fullscreen": False, "focused": True, "monitor_connector": "HDMI-1"},
+        {"app_id": "mpv", "fullscreen": True, "focused": False, "monitor_connector": "DP-2"},
+    ]
+
+
+def test_status_windows_is_empty_when_there_is_no_window():
+    clock = FakeClock(_dt(23, 0))
+    be, _t, orch = _new(replace(default_config(), rules=()), clock)
+
+    orch.set_window_state(None)
+    assert orch.status()["windows"] == []
+    assert orch.status()["window"] is None
+
+
+def test_set_window_state_defaults_unfocused_to_empty():
+    clock = FakeClock(_dt(23, 0))
+    be, _t, orch = _new(replace(default_config(), rules=()), clock)
+
+    orch.set_window_state(WindowState("gimp", False, "HDMI-1"))
+    assert orch.status()["windows"] == [
+        {"app_id": "gimp", "fullscreen": False, "focused": True, "monitor_connector": "HDMI-1"}
+    ]

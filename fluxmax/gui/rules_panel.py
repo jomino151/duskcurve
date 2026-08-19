@@ -102,6 +102,9 @@ def _summarize(rule: Rule, day_kelvin: float) -> str:
     else:
         subject = "Any window"
 
+    if rule.match_unfocused:
+        subject += " (even unfocused)"
+
     if rule.action == "disable":
         action = "disable filter"
     elif rule.action == "force_day":
@@ -122,17 +125,39 @@ def _summarize(rule: Rule, day_kelvin: float) -> str:
     return f"{subject} → {action} {scope}"
 
 
-def _window_state(status: Status | None) -> WindowState | None:
-    if status is None or status.window is None:
-        return None
+def _window_states(
+    status: Status | None,
+) -> tuple[WindowState | None, tuple[WindowState, ...]]:
+    """The focused window and any unfocused-but-tracked windows, from `status`.
+
+    Built from `status.windows` when present; falls back to `status.window`
+    (older daemon payloads, or a single-window snapshot) when `windows` is
+    empty, treating that lone window as focused."""
+    if status is None:
+        return None, ()
+    if status.windows:
+        focused = None
+        unfocused: list[WindowState] = []
+        for w in status.windows:
+            state = WindowState(
+                app_id=w.app_id, fullscreen=w.fullscreen, monitor_connector=w.monitor_connector
+            )
+            if w.focused and focused is None:
+                focused = state
+            else:
+                unfocused.append(state)
+        return focused, tuple(unfocused)
+    if status.window is None:
+        return None, ()
     w = status.window
-    return WindowState(
+    focused = WindowState(
         app_id=w.app_id, fullscreen=w.fullscreen, monitor_connector=w.monitor_connector
     )
+    return focused, ()
 
 
 def _rule_validation_error(
-    app_glob: str | None, fullscreen: bool, action: str, kelvin: int
+    app_glob: str | None, fullscreen: bool, unfocused: bool, action: str, kelvin: int
 ) -> str | None:
     """Mirror fluxmax.daemon.config._validate_rule's requirements, so a rule
     that would be rejected by the daemon (or blow up resolve_rules) is
@@ -142,6 +167,8 @@ def _rule_validation_error(
             "Set an app glob and/or enable “fullscreen only” -- otherwise this "
             "rule matches every window forever."
         )
+    if unfocused and not fullscreen:
+        return "“Also when not focused” requires “fullscreen only”."
     if action == "fixed" and kelvin <= 0:
         return "A fixed action needs a positive kelvin value."
     return None
@@ -152,6 +179,7 @@ def _winning_indices(
     window: WindowState | None,
     connectors: tuple[str, ...],
     day_kelvin: float,
+    unfocused: tuple[WindowState, ...] = (),
 ) -> dict[str, int]:
     """Map each connector to the index of the rule currently controlling it.
 
@@ -162,13 +190,13 @@ def _winning_indices(
     are absent from the result.
     """
     winners: dict[str, int] = {}
-    if window is None or not connectors:
+    if (window is None and not unfocused) or not connectors:
         return winners
     remaining = set(connectors)
     for i in range(len(rules)):
         if not remaining:
             break
-        actions = resolve_rules(window, rules[: i + 1], connectors, day_kelvin)
+        actions = resolve_rules(window, rules[: i + 1], connectors, day_kelvin, unfocused)
         for connector in list(remaining):
             if actions[connector].kind != "none":
                 winners[connector] = i
@@ -289,7 +317,16 @@ class _RuleDialog(Adw.Dialog):
 
         self._fullscreen_row = Adw.SwitchRow(title="Fullscreen only")
         self._fullscreen_row.set_active(rule.match_fullscreen if rule is not None else False)
+        self._fullscreen_row.connect("notify::active", self._on_fullscreen_changed)
         group.add(self._fullscreen_row)
+
+        self._unfocused_row = Adw.SwitchRow(
+            title="Also when not focused",
+            subtitle="Keep acting while the window stays fullscreen but loses focus",
+        )
+        self._unfocused_row.set_active(rule.match_unfocused if rule is not None else False)
+        group.add(self._unfocused_row)
+        self._on_fullscreen_changed(self._fullscreen_row, None)
 
         action_model = Gtk.StringList.new(list(_ACTIONS))
         self._action_row = Adw.ComboRow(title="Action", model=action_model)
@@ -334,6 +371,14 @@ class _RuleDialog(Adw.Dialog):
     def _on_action_changed(self, _row: Adw.ComboRow, _pspec: GObject.ParamSpec) -> None:
         self._update_kelvin_sensitivity()
 
+    def _on_fullscreen_changed(
+        self, _row: Adw.SwitchRow, _pspec: "GObject.ParamSpec | None"
+    ) -> None:
+        fullscreen = self._fullscreen_row.get_active()
+        self._unfocused_row.set_sensitive(fullscreen)
+        if not fullscreen:
+            self._unfocused_row.set_active(False)
+
     def _update_kelvin_sensitivity(self) -> None:
         action = _ACTIONS[self._action_row.get_selected()]
         self._kelvin_row.set_sensitive(action == "fixed")
@@ -347,11 +392,12 @@ class _RuleDialog(Adw.Dialog):
             app_glob_text = self._glob_row.get_text().strip()
             app_glob = app_glob_text if app_glob_text else None
             fullscreen = self._fullscreen_row.get_active()
+            unfocused = self._unfocused_row.get_active()
             action = _ACTIONS[self._action_row.get_selected()]
             kelvin = round(self._kelvin_row.get_value())
             scope = self._scope_labels[self._scope_row.get_selected()]
 
-            error = _rule_validation_error(app_glob, fullscreen, action, kelvin)
+            error = _rule_validation_error(app_glob, fullscreen, unfocused, action, kelvin)
             if error is not None:
                 self.show_apply_error(error)
                 return
@@ -360,6 +406,7 @@ class _RuleDialog(Adw.Dialog):
                 action=action,
                 match_app_glob=app_glob,
                 match_fullscreen=fullscreen,
+                match_unfocused=unfocused,
                 action_kelvin=kelvin if action == "fixed" else None,
                 scope=scope,
             )
@@ -452,10 +499,10 @@ class RulesView(Gtk.Box):
         """
         status = self._state.status
         connectors = tuple(d.connector for d in status.displays) if status is not None else ()
-        window = _window_state(status)
+        window, unfocused = _window_states(status)
 
         try:
-            winners = _winning_indices(cfg.rules, window, connectors, _day_kelvin(cfg))
+            winners = _winning_indices(cfg.rules, window, connectors, _day_kelvin(cfg), unfocused)
         except Exception:
             # Best-effort highlighting only; a malformed rule already on disk
             # must not prevent the list from rendering, and must not call

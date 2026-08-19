@@ -22,6 +22,13 @@ from fluxmax.gui.editing import (
     with_keypoints,
     with_rules,
 )
+from fluxmax.gui.protocol import Status, WindowStatus
+from fluxmax.gui.rules_panel import (
+    _rule_validation_error,
+    _summarize,
+    _window_states,
+    _winning_indices,
+)
 from fluxmax.schedule.curve import ClockAnchor, EventAnchor, Keypoint
 from fluxmax.schedule.modes import MODES
 
@@ -414,3 +421,84 @@ def test_with_rules_replaces_the_config_rules_and_keeps_the_rest():
 def test_edited_rules_survive_the_daemon_validator():
     cfg = with_rules(default_config(), RULES)
     assert load_config(dump_config(cfg)).rules == RULES
+
+
+# -- rules_panel pure-function tests -----------------------------------------
+
+
+def test_summarize_mentions_unfocused():
+    rule = Rule(action="disable", match_fullscreen=True, match_unfocused=True)
+    assert "even unfocused" in _summarize(rule, 6500.0)
+
+
+def test_summarize_omits_unfocused_by_default():
+    rule = Rule(action="disable", match_fullscreen=True)
+    assert "even unfocused" not in _summarize(rule, 6500.0)
+
+
+def test_validation_rejects_unfocused_without_fullscreen():
+    assert _rule_validation_error(None, False, True, "disable", 6500) is not None
+    assert _rule_validation_error("mpv", False, True, "disable", 6500) is not None
+    assert _rule_validation_error("mpv", True, True, "disable", 6500) is None
+
+
+def test_validation_still_rejects_a_universal_match():
+    assert _rule_validation_error(None, False, False, "disable", 6500) is not None
+
+
+def test_validation_still_rejects_a_non_positive_fixed_kelvin():
+    assert _rule_validation_error("mpv", False, False, "fixed", 0) is not None
+
+
+def test_winning_indices_accounts_for_unfocused_windows():
+    rules = (
+        Rule(
+            action="disable",
+            match_fullscreen=True,
+            match_unfocused=True,
+            scope="window_monitor",
+        ),
+    )
+    winners = _winning_indices(
+        rules, None, ("DP-2", "HDMI-1"), 6500.0, (WindowState("mpv", True, "DP-2"),)
+    )
+    assert winners == {"DP-2": 0}
+
+
+def test_winning_indices_returns_empty_without_a_focused_window():
+    rules = (Rule(action="disable", match_fullscreen=True, scope="all"),)
+    assert _winning_indices(rules, None, ("DP-2",), 6500.0) == {}
+
+
+def test_window_states_falls_back_to_the_single_window_field():
+    status = Status(
+        mode="day",
+        paused=False,
+        displays=(),
+        window=WindowStatus("mpv", True, "DP-2"),
+        next_transition=None,
+    )
+    focused, unfocused = _window_states(status)
+    assert focused == WindowState("mpv", True, "DP-2")
+    assert unfocused == ()
+
+
+def test_window_states_splits_focused_from_unfocused_windows():
+    status = Status(
+        mode="day",
+        paused=False,
+        displays=(),
+        window=None,
+        next_transition=None,
+        windows=(
+            WindowStatus("mpv", True, "DP-2", focused=False),
+            WindowStatus("Gimp", True, "HDMI-1", focused=True),
+        ),
+    )
+    focused, unfocused = _window_states(status)
+    assert focused == WindowState("Gimp", True, "HDMI-1")
+    assert unfocused == (WindowState("mpv", True, "DP-2"),)
+
+
+def test_window_states_handles_no_status():
+    assert _window_states(None) == (None, ())
