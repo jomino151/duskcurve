@@ -21,6 +21,7 @@ gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib  # noqa: E402
 
 from fluxmax.backend import MutterBackend  # noqa: E402
+from fluxmax.backend.desktop_theme import GioSettingsWriter, ThemeApplier  # noqa: E402
 from fluxmax.backend.gio_transport import GioMutterTransport  # noqa: E402
 from fluxmax.backend.nightlight import night_light_enabled, set_night_light  # noqa: E402
 from fluxmax.daemon.config import default_config, dump_config, load_config  # noqa: E402
@@ -106,6 +107,7 @@ class _Daemon:
             self.backend,
             self.config,
             clock=lambda: datetime.now(ZoneInfo(self.config.location.timezone)),
+            theme_applier=ThemeApplier(GioSettingsWriter()),
         )
 
         self.service = DaemonService(

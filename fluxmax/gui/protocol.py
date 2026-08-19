@@ -46,6 +46,29 @@ class DisplayStatus:
 
 
 @dataclass(frozen=True)
+class ThemeStatus:
+    enabled: bool = False
+    mode: str | None = None
+    manual: str | None = None
+    manual_expires_in_s: int | None = None
+
+    @classmethod
+    def from_raw(cls, raw: object) -> "ThemeStatus":
+        if not isinstance(raw, dict):
+            return cls()
+        return cls(
+            enabled=bool(raw.get("enabled", False)),
+            mode=raw.get("mode") if isinstance(raw.get("mode"), str) else None,
+            manual=raw.get("manual") if isinstance(raw.get("manual"), str) else None,
+            manual_expires_in_s=(
+                raw["manual_expires_in_s"]
+                if isinstance(raw.get("manual_expires_in_s"), int)
+                else None
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class WindowStatus:
     app_id: str
     fullscreen: bool
@@ -59,6 +82,7 @@ class Status:
     displays: tuple[DisplayStatus, ...]
     window: WindowStatus | None
     next_transition: str | None
+    theme: ThemeStatus = ThemeStatus()
 
     def display(self, connector: str) -> "DisplayStatus | None":
         for d in self.displays:
@@ -156,4 +180,5 @@ def parse_status(json_text: str) -> Status:
         displays=displays,
         window=_parse_window(raw.get("window")),
         next_transition=None if next_transition is None else str(next_transition),
+        theme=ThemeStatus.from_raw(raw.get("theme")),
     )

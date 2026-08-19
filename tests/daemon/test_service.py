@@ -184,7 +184,39 @@ def test_interface_xml_parses_and_exposes_contract():
         "SetManualTemp",
         "ClearManualTemp",
         "ReloadConfig",
+        "SetTheme",
+        "ClearTheme",
     }
 
     signal_names = {s.name for s in iface.signals}
     assert signal_names == {"StatusChanged"}
+
+
+def test_set_theme_delegates_and_emits(tmp_path):
+    service, orch, _path, calls, _clock = _new_service(tmp_path)
+    service.set_theme("dark", 30)
+    assert orch.status()["theme"]["manual"] == "dark"
+    assert len(calls) == 1
+
+
+def test_clear_theme_delegates_and_emits(tmp_path):
+    service, orch, _path, calls, _clock = _new_service(tmp_path)
+    service.set_theme("dark", 30)
+    service.clear_theme()
+    assert orch.status()["theme"]["manual"] is None
+    assert len(calls) == 2
+
+
+def test_set_theme_rejects_an_unknown_mode(tmp_path):
+    service, _orch, _path, _calls, _clock = _new_service(tmp_path)
+    with pytest.raises(ValueError):
+        service.set_theme("sepia", 0)
+
+
+def test_interface_xml_declares_the_theme_methods():
+    assert '<method name="SetTheme">' in INTERFACE_XML
+    assert '<method name="ClearTheme">' in INTERFACE_XML
+    # Additive only: every pre-M8 method must still be declared.
+    for name in ("GetStatus", "GetConfig", "SetConfig", "SetPaused",
+                 "SetManualTemp", "ClearManualTemp", "ReloadConfig"):
+        assert f'<method name="{name}">' in INTERFACE_XML

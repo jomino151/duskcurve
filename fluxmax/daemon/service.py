@@ -41,6 +41,12 @@ INTERFACE_XML = """
     </method>
     <method name="ReloadConfig">
     </method>
+    <method name="SetTheme">
+      <arg type="s" name="mode" direction="in"/>
+      <arg type="i" name="duration_min" direction="in"/>
+    </method>
+    <method name="ClearTheme">
+    </method>
     <signal name="StatusChanged">
       <arg type="s" name="json"/>
     </signal>
@@ -104,6 +110,14 @@ class DaemonService:
         self._orchestrator.clear_manual_temp(connector)
         self._emit_status_changed()
 
+    def set_theme(self, mode: str, duration_min: int) -> None:
+        self._orchestrator.set_theme(mode, duration_min)
+        self._emit_status_changed()
+
+    def clear_theme(self) -> None:
+        self._orchestrator.clear_theme()
+        self._emit_status_changed()
+
     def reload_config(self) -> None:
         with open(self._config_path, encoding="utf-8") as f:
             cfg = load_config(f.read())
@@ -153,6 +167,13 @@ def export_on_connection(service: DaemonService, connection) -> int:
                 invocation.return_value(None)
             elif method_name == "ReloadConfig":
                 service.reload_config()
+                invocation.return_value(None)
+            elif method_name == "SetTheme":
+                mode, duration_min = parameters.unpack()
+                service.set_theme(mode, duration_min)
+                invocation.return_value(None)
+            elif method_name == "ClearTheme":
+                service.clear_theme()
                 invocation.return_value(None)
             else:
                 invocation.return_error_literal(

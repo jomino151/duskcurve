@@ -11,6 +11,7 @@ to an equal `Config`.
 
 import decimal
 import math
+import os
 import re
 import tomllib
 from dataclasses import dataclass, field
@@ -18,11 +19,13 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fluxmax.daemon.rules import RULE_ACTIONS, Rule
 from fluxmax.schedule import MODES
+from fluxmax.theme import ThemeVariant
 
 _HHMM_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 _EVENT_ANCHORS = frozenset({"sunrise", "sunset", "wake", "bedtime"})
 _EASINGS = frozenset({"linear", "smoothstep"})
 _OVERRIDE_KINDS = frozenset({"none", "warm_cap", "fixed", "offset"})
+_COLOR_SCHEMES = frozenset({"default", "prefer-dark", "prefer-light"})
 
 
 class ConfigError(ValueError):
@@ -49,6 +52,23 @@ class DisplayConfig:
     enabled: bool = True
     override_kind: str = "none"  # "none"|"warm_cap"|"fixed"|"offset"
     override_value: float = 0.0  # kelvin for warm_cap/fixed; mired delta for offset
+
+
+@dataclass(frozen=True)
+class ThemeConfig:
+    """When the desktop switches light<->dark, and what each mode looks like.
+
+    Off by default: unlike gamma, this writes settings that are not flux-max's
+    own and that the user may have chosen deliberately.
+    """
+
+    enabled: bool = False
+    light_from: str = "sunrise"  # event anchor or "HH:MM", as schedule keypoints
+    light_offset_min: int = 0
+    dark_from: str = "sunset"
+    dark_offset_min: int = 0
+    light: ThemeVariant = ThemeVariant("prefer-light", "Yaru", "Yaru")
+    dark: ThemeVariant = ThemeVariant("prefer-dark", "Yaru-dark", "Yaru-dark")
 
 
 @dataclass(frozen=True)
@@ -80,6 +100,7 @@ class Config:
     tick_interval_seconds: float = 2.0
     displays: dict[str, DisplayConfig] = field(default_factory=dict)  # keyed by connector
     rules: tuple[Rule, ...] = ()
+    theme: ThemeConfig = ThemeConfig()
 
 
 def default_config() -> Config:
@@ -143,6 +164,73 @@ def _validate_mode(mode: object) -> str:
     return mode
 
 
+def _validate_anchor(value: object, label: str) -> str:
+    if not isinstance(value, str) or not (value in _EVENT_ANCHORS or _HHMM_RE.match(value)):
+        raise ConfigError(
+            f"{label} {value!r} must be one of {sorted(_EVENT_ANCHORS)} or 'HH:MM'"
+        )
+    return value
+
+
+def _validate_theme_variant(raw: object, label: str, default: ThemeVariant) -> ThemeVariant:
+    if not isinstance(raw, dict):
+        raise ConfigError(f"[{label}] must be a table, got {raw!r}")
+    values = {}
+    for name in ("color_scheme", "gtk_theme", "icon_theme", "shell_theme", "cursor_theme",
+                 "wallpaper"):
+        value = raw.get(name, getattr(default, name))
+        if not isinstance(value, str):
+            raise ConfigError(f"{label}.{name} must be a string, got {value!r}")
+        values[name] = value
+
+    scheme = values["color_scheme"]
+    # "" means "leave color-scheme alone"; anything else must be in the schema's
+    # enum, because Gio silently returns False for an out-of-range value.
+    if scheme and scheme not in _COLOR_SCHEMES:
+        raise ConfigError(
+            f"{label}.color_scheme {scheme!r} must be '' or one of {sorted(_COLOR_SCHEMES)}"
+        )
+    wallpaper = values["wallpaper"]
+    if wallpaper and not os.path.isabs(wallpaper):
+        raise ConfigError(f"{label}.wallpaper must be an absolute path, got {wallpaper!r}")
+    return ThemeVariant(**values)
+
+
+def _validate_theme(raw: dict) -> ThemeConfig:
+    default = ThemeConfig()
+    enabled = raw.get("enabled", default.enabled)
+    if not isinstance(enabled, bool):
+        raise ConfigError(f"theme.enabled must be a boolean, got {enabled!r}")
+
+    light_from = _validate_anchor(raw.get("light_from", default.light_from), "theme.light_from")
+    dark_from = _validate_anchor(raw.get("dark_from", default.dark_from), "theme.dark_from")
+
+    offsets = {}
+    for name, fallback in (
+        ("light_offset_min", default.light_offset_min),
+        ("dark_offset_min", default.dark_offset_min),
+    ):
+        value = raw.get(name, fallback)
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ConfigError(f"theme.{name} must be an integer, got {value!r}")
+        offsets[name] = value
+
+    # Identical anchors make both arcs of the day empty -- there is no sensible
+    # answer, so reject it here rather than let the (deliberately total) policy
+    # function fall back to dark forever.
+    if light_from == dark_from and offsets["light_offset_min"] == offsets["dark_offset_min"]:
+        raise ConfigError("theme.light_from and theme.dark_from must differ")
+
+    return ThemeConfig(
+        enabled=enabled,
+        light_from=light_from,
+        dark_from=dark_from,
+        light=_validate_theme_variant(raw.get("light", {}), "theme.light", default.light),
+        dark=_validate_theme_variant(raw.get("dark", {}), "theme.dark", default.dark),
+        **offsets,
+    )
+
+
 def _validate_keypoint(raw: dict) -> KeypointConfig:
     try:
         anchor = raw["anchor"]
@@ -158,12 +246,7 @@ def _validate_keypoint(raw: dict) -> KeypointConfig:
         raise ConfigError(f"keypoint offset_min must be an integer: {exc}") from exc
     easing = raw.get("easing", "smoothstep")
 
-    if not isinstance(anchor, str) or not (
-        anchor in _EVENT_ANCHORS or _HHMM_RE.match(anchor)
-    ):
-        raise ConfigError(
-            f"keypoint anchor {anchor!r} must be one of {sorted(_EVENT_ANCHORS)} or 'HH:MM'"
-        )
+    anchor = _validate_anchor(anchor, "keypoint anchor")
     if easing not in _EASINGS:
         raise ConfigError(f"keypoint easing {easing!r} must be one of {sorted(_EASINGS)}")
     if not (math.isfinite(kelvin) and kelvin > 0):
@@ -353,6 +436,7 @@ def load_config(text: str) -> Config:
     tick_interval_seconds = _validate_tick(doc.get("tick", {}))
     displays = _validate_displays(doc.get("displays", {}))
     rules = _validate_rules(doc.get("rules", []))
+    theme = _validate_theme(doc.get("theme", {}))
 
     return Config(
         location=location,
@@ -368,6 +452,7 @@ def load_config(text: str) -> Config:
         tick_interval_seconds=tick_interval_seconds,
         displays=displays,
         rules=rules,
+        theme=theme,
     )
 
 
@@ -450,6 +535,25 @@ def dump_config(cfg: Config) -> str:
     lines.append("[tick]")
     lines.append(f"interval_seconds = {_fmt_float(cfg.tick_interval_seconds)}")
     lines.append("")
+
+    theme = cfg.theme
+    lines.append("[theme]")
+    lines.append(f"enabled = {_fmt_bool(theme.enabled)}")
+    lines.append(f"light_from = {_fmt_str(theme.light_from)}")
+    lines.append(f"light_offset_min = {int(theme.light_offset_min)}")
+    lines.append(f"dark_from = {_fmt_str(theme.dark_from)}")
+    lines.append(f"dark_offset_min = {int(theme.dark_offset_min)}")
+    lines.append("")
+
+    for section, variant in (("light", theme.light), ("dark", theme.dark)):
+        lines.append(f"[theme.{section}]")
+        lines.append(f"color_scheme = {_fmt_str(variant.color_scheme)}")
+        lines.append(f"gtk_theme = {_fmt_str(variant.gtk_theme)}")
+        lines.append(f"icon_theme = {_fmt_str(variant.icon_theme)}")
+        lines.append(f"shell_theme = {_fmt_str(variant.shell_theme)}")
+        lines.append(f"cursor_theme = {_fmt_str(variant.cursor_theme)}")
+        lines.append(f"wallpaper = {_fmt_str(variant.wallpaper)}")
+        lines.append("")
 
     for name, disp in cfg.displays.items():
         lines.append(f"[displays.{_dump_key(name)}]")
