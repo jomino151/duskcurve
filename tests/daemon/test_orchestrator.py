@@ -1067,3 +1067,60 @@ def test_set_window_state_defaults_unfocused_to_empty():
     assert orch.status()["windows"] == [
         {"app_id": "gimp", "fullscreen": False, "focused": True, "monitor_connector": "HDMI-1"}
     ]
+
+
+def test_status_rule_action_reflects_an_unfocused_window_without_ticking():
+    # status() runs its OWN resolve_rules, separate from tick()'s. If it were
+    # to lose the unfocused windows, every temperature would still be right
+    # (tick computed those) while the GUI's per-display rule badge silently
+    # reported "none" -- the Displays tab would show an untinted monitor with
+    # no explanation of why.
+    cfg = replace(
+        default_config(),
+        rules=(
+            Rule(
+                action="disable",
+                match_fullscreen=True,
+                match_unfocused=True,
+                scope="window_monitor",
+            ),
+        ),
+    )
+    clock = FakeClock(_dt(23, 0))
+    _be, _t, orch = _new(cfg, clock)
+
+    orch.set_window_state(None, [WindowState("mpv", True, "DP-2")])
+    per = {d["connector"]: d for d in orch.status()["per_display"]}
+    assert per["DP-2"]["rule_action"] == {"kind": "disable", "kelvin": None}
+    assert per["HDMI-1"]["rule_action"] == {"kind": "none", "kelvin": None}
+
+
+def test_an_unfocused_rule_engages_at_rule_pace_not_schedule_pace():
+    # The M5 lesson, re-checked for the new source: a rule reacting to a
+    # deliberate user action must not inherit the schedule's slow drift. With
+    # a 20 s schedule constant and the default 0 s rule constant, one tick
+    # must land the display fully on its target -- the same guarantee a
+    # focused-window rule already has.
+    cfg = replace(
+        default_config(),
+        rules=(
+            Rule(
+                action="disable",
+                match_fullscreen=True,
+                match_unfocused=True,
+                scope="window_monitor",
+            ),
+        ),
+        transition_seconds=20.0,
+    )
+    assert cfg.rule_transition_seconds == 0.0
+    clock = FakeClock(_dt(23, 0))
+    _be, _t, orch = _new(cfg, clock)
+
+    orch.tick()  # settle on the night curve first
+    clock.advance(2)
+    orch.set_window_state(None, [WindowState("mpv", True, "DP-2")])
+    orch.tick()
+
+    per = {d["connector"]: d for d in orch.status()["per_display"]}
+    assert per["DP-2"]["current_k"] == round(NEUTRAL_KELVIN)

@@ -23,7 +23,7 @@ from fluxmax.gui.editing import (
     with_rules,
 )
 from fluxmax.gui.protocol import Status, WindowStatus
-from fluxmax.gui.rules_panel import (
+from fluxmax.gui.rules_logic import (
     _rule_validation_error,
     _summarize,
     _window_states,
@@ -502,3 +502,29 @@ def test_window_states_splits_focused_from_unfocused_windows():
 
 def test_window_states_handles_no_status():
     assert _window_states(None) == (None, ())
+
+
+def test_winning_indices_credits_the_focused_rule_that_actually_wins():
+    # Regression: the panel attributes each display to a rule by evaluating
+    # rule PREFIXES. That is sound for focused-only resolution (first match
+    # wins, so a prefix result is either "none" or the final answer), but it
+    # breaks once unfocused windows can fill displays: an unfocused rule early
+    # in the list claims a display inside its own short prefix, even though in
+    # the full rule set a LATER focused rule claims that display first and the
+    # unfocused rule never gets it. The badge would then point at the wrong
+    # rule -- the one thing this module's docstring promises cannot happen.
+    unfocused_rule = Rule(action="disable", match_fullscreen=True, match_unfocused=True,
+                          scope="window_monitor")
+    gimp_rule = Rule(action="force_day", match_app_glob="gimp", scope="all")
+    rules = (unfocused_rule, gimp_rule)
+    connectors = ("DP-2", "HDMI-1")
+
+    focused = WindowState("gimp", False, "HDMI-1")
+    unfocused = (WindowState("mpv", True, "DP-2"),)
+
+    # What the daemon actually does with the full rule set:
+    actions = resolve_rules(focused, rules, connectors, 6500.0, unfocused)
+    assert actions["DP-2"].kind == "fixed"    # gimp_rule, scope "all", won it
+
+    winners = _winning_indices(rules, focused, connectors, 6500.0, unfocused)
+    assert winners == {"DP-2": 1, "HDMI-1": 1}
