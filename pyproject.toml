@@ -1,6 +1,6 @@
 [project]
 name = "fluxmax"
-version = "1.0.0"
+version = "1.0.2"
 description = "GNOME/Wayland-native f.lux-equivalent blue-light filter"
 requires-python = ">=3.12"
 license = { text = "GPL-3.0-or-later" }
