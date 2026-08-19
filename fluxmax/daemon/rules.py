@@ -19,6 +19,7 @@ class Rule:
     match_fullscreen: bool = False
     action_kelvin: int | None = None
     scope: str = "window_monitor"  # "all" | "window_monitor" | a connector name
+    match_unfocused: bool = False  # requires match_fullscreen=True
 
 
 @dataclass(frozen=True)
@@ -38,11 +39,39 @@ def rule_matches(rule: Rule, window: WindowState) -> bool:
     return app_ok and fullscreen_ok
 
 
+def _action_for(rule: Rule, day_kelvin: float) -> RuleAction:
+    """Construct the RuleAction a winning rule produces.
+
+    Raises:
+        ValueError: If `rule.action` is not one of "disable", "force_day", "fixed", or if it
+            is "fixed" without `action_kelvin` set.
+    """
+    if rule.action == "disable":
+        return RuleAction("disable")
+    if rule.action == "force_day":
+        return RuleAction("fixed", float(day_kelvin))
+    if rule.action == "fixed":
+        if rule.action_kelvin is None:
+            raise ValueError("rule action 'fixed' requires action_kelvin to be set")
+        return RuleAction("fixed", float(rule.action_kelvin))
+    raise ValueError(f"unknown rule action: {rule.action!r}")
+
+
+def _affected(rule: Rule, window: WindowState, connectors: Sequence[str]) -> list[str]:
+    """Return the connectors `rule`'s scope resolves to, given the matching `window`."""
+    if rule.scope == "all":
+        return list(connectors)
+    if rule.scope == "window_monitor":
+        return [window.monitor_connector] if window.monitor_connector in connectors else []
+    return [rule.scope] if rule.scope in connectors else []
+
+
 def resolve_rules(
     window: WindowState | None,
     rules: Sequence[Rule],
     connectors: Sequence[str],
     day_kelvin: float = 6500.0,
+    unfocused: Sequence[WindowState] = (),
 ) -> dict[str, RuleAction]:
     """Resolve the first matching rule (if any) into a per-connector action mapping.
 
@@ -51,42 +80,46 @@ def resolve_rules(
     Otherwise the first rule in `rules` for which `rule_matches` is True wins; its scope
     determines which connectors receive the computed action.
 
+    If `unfocused` is non-empty, rules with `match_unfocused=True` may then fill in any
+    connector still at NO_ACTION using the fullscreen windows in `unfocused`; a focused
+    window's decision is never overwritten. Rules are scanned in order, and within a rule,
+    `unfocused` windows are scanned in order, so rule order (not window order) breaks ties
+    between competing fullscreen windows.
+
     Raises:
-        ValueError: If the winning rule's action is not one of "disable", "force_day", "fixed".
+        ValueError: If a winning rule's action is not one of "disable", "force_day", "fixed".
     """
     result = {connector: NO_ACTION for connector in connectors}
 
-    if window is None or window.app_id == "":
+    if window is not None and window.app_id != "":
+        winning_rule = None
+        for rule in rules:
+            if rule_matches(rule, window):
+                winning_rule = rule
+                break
+
+        if winning_rule is not None:
+            action = _action_for(winning_rule, day_kelvin)
+            for connector in _affected(winning_rule, window, connectors):
+                result[connector] = action
+
+    if not unfocused:
         return result
 
-    winning_rule = None
     for rule in rules:
-        if rule_matches(rule, window):
-            winning_rule = rule
-            break
-
-    if winning_rule is None:
-        return result
-
-    if winning_rule.scope == "all":
-        affected = list(connectors)
-    elif winning_rule.scope == "window_monitor":
-        affected = [window.monitor_connector] if window.monitor_connector in connectors else []
-    else:
-        affected = [winning_rule.scope] if winning_rule.scope in connectors else []
-
-    if winning_rule.action == "disable":
-        action = RuleAction("disable")
-    elif winning_rule.action == "force_day":
-        action = RuleAction("fixed", float(day_kelvin))
-    elif winning_rule.action == "fixed":
-        if winning_rule.action_kelvin is None:
-            raise ValueError("rule action 'fixed' requires action_kelvin to be set")
-        action = RuleAction("fixed", float(winning_rule.action_kelvin))
-    else:
-        raise ValueError(f"unknown rule action: {winning_rule.action!r}")
-
-    for connector in affected:
-        result[connector] = action
+        if not rule.match_unfocused:
+            continue
+        for window_ in unfocused:
+            if window_.app_id == "" or not window_.fullscreen:
+                continue
+            if not rule_matches(rule, window_):
+                continue
+            affected = [c for c in _affected(rule, window_, connectors)
+                        if result[c] is NO_ACTION]
+            if not affected:
+                continue
+            action = _action_for(rule, day_kelvin)
+            for connector in affected:
+                result[connector] = action
 
     return result

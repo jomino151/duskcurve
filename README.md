@@ -34,6 +34,7 @@ via a `[[rules]]` list in `config.toml`. Each table in the list is one rule.
 | --- | --- | --- | --- |
 | `match_app_glob` | string or absent | none (unset) | Glob pattern (`fnmatch` syntax) matched against the focused window's app id, e.g. `"org.gimp.*"`. |
 | `match_fullscreen` | bool | `false` | If `true`, the rule only matches while the focused window is fullscreen. |
+| `match_unfocused` | bool | `false` | If `true`, the rule *also* matches a **visible fullscreen** window that is not focused — e.g. a fullscreen video on your second monitor while you type on the first. Requires `match_fullscreen = true` (only fullscreen windows are reported while unfocused, so any other combination could never match, and fails config validation). Needs extension version 2 — see [GNOME Shell extension](#gnome-shell-extension). |
 | `action` | string | required | One of `"disable"` (turn the filter off — neutral colour), `"force_day"` (fixed at the configured daytime `max_kelvin`), or `"fixed"` (fixed at `action_kelvin`). |
 | `action_kelvin` | positive integer | required when `action = "fixed"`, else must be absent | The fixed colour temperature in Kelvin to apply. Must be a positive integer (`> 0`, not a bool) — `0`, a negative value, or `true`/`false` all fail config validation. |
 | `scope` | non-empty string | `"window_monitor"` | Which display(s) the rule's action applies to: `"all"` (every display), `"window_monitor"` (only the display the focused window is on), or a specific connector name (e.g. `"DP-2"`). An empty string fails config validation. |
@@ -41,10 +42,18 @@ via a `[[rules]]` list in `config.toml`. Each table in the list is one rule.
 At least one of `match_app_glob` or `match_fullscreen = true` must be set — a rule with
 neither would match every window forever.
 
+`match_unfocused = true` additionally requires `match_fullscreen = true`.
+
 Rules are evaluated **first-match-wins**: the list is scanned in order, and the first
 rule whose `match_app_glob` and `match_fullscreen` constraints both hold for the
 currently focused window is applied. Later rules are not considered, even if they would
 also match.
+
+The **focused** window is always resolved first, exactly as above. Only then do rules with
+`match_unfocused = true` get a turn, and they can claim a display *only* if no focused-window
+rule already claimed it — a background video can never take over the monitor you are working
+on. Among unfocused fullscreen windows, rule order decides: the list is scanned top to bottom
+and the first rule that matches any unfocused window on a free display wins that display.
 
 Rules sit in the middle of the daemon's precedence chain for what temperature a display
 shows:
@@ -100,6 +109,13 @@ Two copyable examples:
 # Any fullscreen window disables the filter on the display it is on
 [[rules]]
 match_fullscreen = true
+action = "disable"
+scope = "window_monitor"
+
+# The same, but the video keeps its own monitor neutral even while you work on the other one
+[[rules]]
+match_fullscreen = true
+match_unfocused = true
 action = "disable"
 scope = "window_monitor"
 
@@ -279,6 +295,17 @@ as if no rules were configured.
 GNOME Shell session: on Wayland, GNOME Shell cannot be restarted in place, so `Alt+F2 r` does
 not work here. You must **log out and back in** before rules take effect.
 
+`match_unfocused` needs **extension version 2 or newer**. The daemon asks the extension for the
+full window set on connect and falls back to the older focused-window-only interface when the
+extension does not answer, so upgrading the daemon while an older extension is still loaded is
+safe: everything behaves exactly as before, `match_unfocused` rules simply stay inert, and the
+daemon logs one line saying so. Log out and back in to pick up the new extension.
+
+One limitation to know about: with GNOME's *workspaces on primary display only* setting, a
+fullscreen window on a secondary monitor is still evaluated against its own workspace, so an
+unfocused rule may release when you switch workspaces. This errs on the safe side — the filter
+comes back rather than staying off over a window you can no longer see.
+
 ## GUI
 
 Launch with `fluxmax-gui` (requires the daemon to be running; if the daemon is not reachable, the app shows a status page instead of working offline, since the daemon owns the configuration and the GUI never edits the config file directly).
@@ -297,7 +324,7 @@ The window has four tabs:
 
 Whenever a manual override is running, the group description says so, and — if it was given a duration — counts down: *"Manual override active — 25 min left."* An override set to "Until cleared" says that instead, so a forgotten override never looks like a dead schedule. The duration is chosen per set: the dropdown is a control rather than a readout, so it always starts at "Until cleared" and does not reflect what is currently running. The countdown is the thing that tells you that. Changing the dropdown while an override is already running re-arms that override at the new duration immediately, so you can add or remove a timer without touching the slider.
 
-- **Rules**: The ordered list of app and fullscreen rules (first-match-wins: rules are evaluated top to bottom, and the first match wins). Use "Add rule" to create a new rule, or click the edit icon on an existing rule to change it. Up/down arrows reorder rules; delete removes them with an undo toast. Rules are highlighted if they are currently active on any display, showing which monitors they control.
+- **Rules**: The ordered list of app and fullscreen rules (first-match-wins: rules are evaluated top to bottom, and the first match wins). The rule editor has an "Also when not focused" switch, available once "Fullscreen only" is on, which sets `match_unfocused`. Use "Add rule" to create a new rule, or click the edit icon on an existing rule to change it. Up/down arrows reorder rules; delete removes them with an undo toast. Rules are highlighted if they are currently active on any display, showing which monitors they control.
 
 - **Theme**: Controls for desktop light/dark theme switching (see [Desktop theme
   switching](#desktop-theme-switching) above). A Light/Dark/Auto toggle row at the top sets a

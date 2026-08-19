@@ -134,3 +134,150 @@ def test_rules_module_imports_no_gi():
         "'fluxmax.daemon.rules pulled in gi'"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+UNFOCUSED_RULE = Rule(
+    action="disable", match_fullscreen=True, match_unfocused=True, scope="window_monitor"
+)
+
+
+def test_unfocused_window_is_ignored_without_match_unfocused():
+    # FULLSCREEN_RULE has match_unfocused=False (the default).
+    got = resolve_rules(
+        None, [FULLSCREEN_RULE], CONNECTORS,
+        unfocused=[_win(fullscreen=True, connector="DP-2")],
+    )
+    assert got == {"DP-2": NO_ACTION, "HDMI-1": NO_ACTION}
+
+
+def test_unfocused_fullscreen_window_disables_its_own_monitor():
+    got = resolve_rules(
+        None, [UNFOCUSED_RULE], CONNECTORS,
+        unfocused=[_win(fullscreen=True, connector="DP-2")],
+    )
+    assert got == {"DP-2": RuleAction("disable"), "HDMI-1": NO_ACTION}
+
+
+def test_unfocused_window_that_is_not_fullscreen_never_matches():
+    # Belt and braces: the engine must not trust the extension to filter.
+    got = resolve_rules(
+        None, [UNFOCUSED_RULE], CONNECTORS,
+        unfocused=[_win(fullscreen=False, connector="DP-2")],
+    )
+    assert got == {"DP-2": NO_ACTION, "HDMI-1": NO_ACTION}
+
+
+def test_unfocused_window_with_empty_app_id_is_skipped():
+    got = resolve_rules(
+        None, [UNFOCUSED_RULE], CONNECTORS,
+        unfocused=[_win(app_id="", fullscreen=True, connector="DP-2")],
+    )
+    assert got == {"DP-2": NO_ACTION, "HDMI-1": NO_ACTION}
+
+
+def test_focused_decision_is_never_overwritten_by_an_unfocused_window():
+    focused_rule = Rule(action="fixed", action_kelvin=3000, match_app_glob="org.gimp.*",
+                        scope="all")
+    got = resolve_rules(
+        _win(app_id="org.gimp.GIMP", connector="HDMI-1"),
+        [focused_rule, UNFOCUSED_RULE],
+        CONNECTORS,
+        unfocused=[_win(fullscreen=True, connector="DP-2")],
+    )
+    # The focused rule scoped "all" claimed both connectors first.
+    assert got == {"DP-2": RuleAction("fixed", 3000.0), "HDMI-1": RuleAction("fixed", 3000.0)}
+
+
+def test_unfocused_fills_only_connectors_the_focused_window_left_alone():
+    focused_rule = Rule(action="force_day", match_app_glob="org.gimp.*",
+                        scope="window_monitor")
+    got = resolve_rules(
+        _win(app_id="org.gimp.GIMP", connector="HDMI-1"),
+        [focused_rule, UNFOCUSED_RULE],
+        CONNECTORS,
+        unfocused=[_win(fullscreen=True, connector="DP-2")],
+    )
+    assert got == {"DP-2": RuleAction("disable"), "HDMI-1": RuleAction("fixed", 6500.0)}
+
+
+def test_unfocused_scope_all_claims_every_free_connector():
+    rule = Rule(action="disable", match_fullscreen=True, match_unfocused=True, scope="all")
+    got = resolve_rules(
+        None, [rule], CONNECTORS, unfocused=[_win(fullscreen=True, connector="DP-2")]
+    )
+    assert got == {"DP-2": RuleAction("disable"), "HDMI-1": RuleAction("disable")}
+
+
+def test_unfocused_scope_named_connector_ignores_the_window_monitor():
+    rule = Rule(action="disable", match_fullscreen=True, match_unfocused=True, scope="HDMI-1")
+    got = resolve_rules(
+        None, [rule], CONNECTORS, unfocused=[_win(fullscreen=True, connector="DP-2")]
+    )
+    assert got == {"DP-2": NO_ACTION, "HDMI-1": RuleAction("disable")}
+
+
+def test_unfocused_scope_unknown_connector_affects_nothing():
+    rule = Rule(action="disable", match_fullscreen=True, match_unfocused=True, scope="VGA-9")
+    got = resolve_rules(
+        None, [rule], CONNECTORS, unfocused=[_win(fullscreen=True, connector="DP-2")]
+    )
+    assert got == {"DP-2": NO_ACTION, "HDMI-1": NO_ACTION}
+
+
+def test_rule_order_beats_window_order_for_two_unfocused_windows():
+    # Both windows are on DP-2. Window order says mpv first; rule order says
+    # the firefox rule first. Rule order must win.
+    firefox_rule = Rule(action="fixed", action_kelvin=4000, match_app_glob="firefox",
+                        match_fullscreen=True, match_unfocused=True, scope="window_monitor")
+    mpv_rule = Rule(action="disable", match_app_glob="mpv", match_fullscreen=True,
+                    match_unfocused=True, scope="window_monitor")
+    got = resolve_rules(
+        None,
+        [firefox_rule, mpv_rule],
+        CONNECTORS,
+        unfocused=[_win(app_id="mpv", fullscreen=True, connector="DP-2"),
+                   _win(app_id="firefox", fullscreen=True, connector="DP-2")],
+    )
+    assert got["DP-2"] == RuleAction("fixed", 4000.0)
+
+
+def test_window_order_breaks_ties_within_one_rule():
+    got = resolve_rules(
+        None,
+        [UNFOCUSED_RULE],
+        CONNECTORS,
+        unfocused=[_win(app_id="mpv", fullscreen=True, connector="DP-2"),
+                   _win(app_id="firefox", fullscreen=True, connector="HDMI-1")],
+    )
+    assert got == {"DP-2": RuleAction("disable"), "HDMI-1": RuleAction("disable")}
+
+
+def test_unfocused_fixed_action_without_kelvin_still_raises():
+    bad = Rule(action="fixed", match_fullscreen=True, match_unfocused=True)
+    with pytest.raises(ValueError):
+        resolve_rules(None, [bad], CONNECTORS,
+                      unfocused=[_win(fullscreen=True, connector="DP-2")])
+
+
+def test_empty_unfocused_is_identical_to_omitting_it():
+    win = _win(fullscreen=True, connector="DP-2")
+    assert resolve_rules(win, [FULLSCREEN_RULE], CONNECTORS, 6500.0, ()) == resolve_rules(
+        win, [FULLSCREEN_RULE], CONNECTORS
+    )
+
+
+def test_unfocused_fullscreen_recheck_does_not_rely_on_the_rule_glob():
+    # The engine must not trust the extension to publish only fullscreen
+    # windows as unfocused. config.py rejects match_unfocused without
+    # match_fullscreen, so this Rule can only be built directly -- which is
+    # exactly the point: rules.py enforces the invariant on its own, and this
+    # test is the only thing that proves the explicit re-check in
+    # resolve_rules is load-bearing rather than dead weight behind
+    # rule_matches' own fullscreen constraint.
+    rule = Rule(action="disable", match_app_glob="mpv", match_unfocused=True,
+                match_fullscreen=False, scope="window_monitor")
+    got = resolve_rules(
+        None, [rule], CONNECTORS,
+        unfocused=[_win(app_id="mpv", fullscreen=False, connector="DP-2")],
+    )
+    assert got == {"DP-2": NO_ACTION, "HDMI-1": NO_ACTION}

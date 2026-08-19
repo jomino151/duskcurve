@@ -3,14 +3,24 @@
 SYSTEM module: the GNOME Shell extension that owns this bus name will
 frequently be absent (not installed, disabled, or the shell restarted) — that
 is a normal operating state, not an error path. Graceful degradation to
-``on_change(None)`` is the default, not an exception.
+``on_change(None, ())`` is the default, not an exception.
+
+Protocol negotiation: a modern extension exports ``GetWindows``/
+``WindowsChanged`` (the focused window plus every visible fullscreen
+non-focused window). An older extension only exports ``GetState``/
+``FocusChanged`` (the focused window alone). ``WindowWatcher`` tries the
+modern method first and falls back to the legacy one on any error (an
+unknown-method D-Bus error is the expected shape of that failure, not a bug).
+Both signals are subscribed unconditionally so nothing fired between
+negotiation and subscription is lost; the ``_modern`` flag decides which
+handler's payload is acted on.
 
 Only `start()` touches `gi`/`Gio`, and only via a lazy import inside the
 method, so that `import fluxmax.daemon` never pulls in `gi`.
 """
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from fluxmax.daemon.rules import WindowState
 
@@ -28,14 +38,94 @@ def decode_focus_payload(app_id: str, fullscreen: bool, connector: str) -> Windo
     return WindowState(app_id=app_id, fullscreen=bool(fullscreen), monitor_connector=connector)
 
 
+def decode_windows_payload(
+    entries: Sequence[tuple[str, bool, bool, str]],
+) -> tuple[WindowState | None, tuple[WindowState, ...]]:
+    """Decode a GetWindows/WindowsChanged payload into (focused, unfocused).
+
+    Entries are ``(app_id, fullscreen, focused, monitor_connector)``. Blank/
+    whitespace ``app_id`` entries are dropped (reusing ``decode_focus_payload``
+    per entry). The first entry whose ``focused`` flag is truthy and which
+    decodes to a WindowState becomes the focused window; every other decoded
+    entry goes into ``unfocused``, in payload order.
+    """
+    focused: WindowState | None = None
+    unfocused: list[WindowState] = []
+    for app_id, fullscreen, is_focused, connector in entries:
+        state = decode_focus_payload(app_id, fullscreen, connector)
+        if state is None:
+            continue
+        if is_focused and focused is None:
+            focused = state
+        else:
+            unfocused.append(state)
+    return focused, tuple(unfocused)
+
+
 class WindowWatcher:
     """Watches org.fluxmax.WindowWatcher on the session bus and reports focus changes."""
 
-    def __init__(self, on_change: Callable[[WindowState | None], None]) -> None:
+    def __init__(
+        self, on_change: Callable[[WindowState | None, tuple[WindowState, ...]], None]
+    ) -> None:
         self._on_change = on_change
         self._connection = None
         self._watch_id: int | None = None
-        self._subscription_id: int | None = None
+        self._subscription_ids: list[int] = []
+        self._modern = False
+
+    def _deliver(self, focused: WindowState | None, unfocused: tuple[WindowState, ...]) -> None:
+        try:
+            self._on_change(focused, unfocused)
+        except Exception:
+            log.exception("WindowWatcher: on_change callback raised")
+
+    def _negotiate(self, call) -> None:
+        """Negotiate the protocol on name-appeared.
+
+        ``call(method_name)`` must invoke the named D-Bus method and return
+        its unpacked result: a list of entry-tuples for ``GetWindows``, or a
+        3-tuple ``(app_id, fullscreen, connector)`` for ``GetState``.
+        """
+        try:
+            entries = call("GetWindows")
+            focused, unfocused = decode_windows_payload(entries)
+        except Exception as exc:
+            log.info(
+                "WindowWatcher: GetWindows unavailable, falling back to legacy protocol: %s", exc
+            )
+            self._modern = False
+            try:
+                app_id, fullscreen, connector = call("GetState")
+                state = decode_focus_payload(app_id, fullscreen, connector)
+            except Exception:
+                log.exception("WindowWatcher: GetState() failed on name-appeared")
+                self._deliver(None, ())
+                return
+            self._deliver(state, ())
+            return
+        self._modern = True
+        self._deliver(focused, unfocused)
+
+    def _handle_windows_changed(self, entries) -> None:
+        if not self._modern:
+            return
+        try:
+            focused, unfocused = decode_windows_payload(entries)
+        except Exception:
+            log.exception("WindowWatcher: failed to decode WindowsChanged payload")
+            focused, unfocused = None, ()
+        self._deliver(focused, unfocused)
+
+    def _handle_focus_changed(self, app_id, fullscreen, connector) -> None:
+        if self._modern:
+            return
+        try:
+            state = decode_focus_payload(app_id, fullscreen, connector)
+        except Exception:
+            log.exception("WindowWatcher: failed to decode FocusChanged payload")
+            state = None
+        self._deliver(state, ())
 
     def start(self) -> None:
         import gi
@@ -46,34 +136,27 @@ class WindowWatcher:
         connection = Gio.bus_get_sync(Gio.BusType.SESSION, None)
         self._connection = connection
 
+        def call(method_name: str):
+            result = connection.call_sync(
+                WATCHER_BUS_NAME,
+                WATCHER_OBJECT_PATH,
+                WATCHER_INTERFACE,
+                method_name,
+                None,
+                None,
+                Gio.DBusCallFlags.NONE,
+                1000,
+                None,
+            )
+            unpacked = result.unpack()
+            return unpacked[0] if len(unpacked) == 1 else unpacked
+
         def on_appeared(_connection, _name, _name_owner):
-            try:
-                try:
-                    result = connection.call_sync(
-                        WATCHER_BUS_NAME,
-                        WATCHER_OBJECT_PATH,
-                        WATCHER_INTERFACE,
-                        "GetState",
-                        None,
-                        None,
-                        Gio.DBusCallFlags.NONE,
-                        1000,
-                        None,
-                    )
-                    app_id, fullscreen, connector = result.unpack()
-                    state = decode_focus_payload(app_id, fullscreen, connector)
-                except Exception:
-                    log.exception("WindowWatcher: GetState() failed on name-appeared")
-                    state = None
-                self._on_change(state)
-            except Exception:
-                log.exception("WindowWatcher: on_change callback raised on name-appeared")
+            self._negotiate(call)
 
         def on_vanished(_connection, _name):
-            try:
-                self._on_change(None)
-            except Exception:
-                log.exception("WindowWatcher: on_change callback raised on name-vanished")
+            self._modern = False
+            self._deliver(None, ())
 
         def on_focus_changed(
             _connection,
@@ -84,16 +167,47 @@ class WindowWatcher:
             parameters,
         ):
             try:
-                try:
-                    app_id, fullscreen, connector = parameters.unpack()
-                    state = decode_focus_payload(app_id, fullscreen, connector)
-                except Exception:
-                    log.exception("WindowWatcher: failed to decode FocusChanged payload")
-                    state = None
-                self._on_change(state)
+                app_id, fullscreen, connector = parameters.unpack()
             except Exception:
-                log.exception("WindowWatcher: on_change callback raised on FocusChanged")
+                log.exception("WindowWatcher: failed to unpack FocusChanged payload")
+                return
+            self._handle_focus_changed(app_id, fullscreen, connector)
 
+        def on_windows_changed(
+            _connection,
+            _sender_name,
+            _object_path,
+            _interface_name,
+            _signal_name,
+            parameters,
+        ):
+            try:
+                entries = parameters.unpack()[0]
+            except Exception:
+                log.exception("WindowWatcher: failed to unpack WindowsChanged payload")
+                return
+            self._handle_windows_changed(entries)
+
+        self._subscription_ids = [
+            connection.signal_subscribe(
+                WATCHER_BUS_NAME,
+                WATCHER_INTERFACE,
+                "FocusChanged",
+                WATCHER_OBJECT_PATH,
+                None,
+                Gio.DBusSignalFlags.NONE,
+                on_focus_changed,
+            ),
+            connection.signal_subscribe(
+                WATCHER_BUS_NAME,
+                WATCHER_INTERFACE,
+                "WindowsChanged",
+                WATCHER_OBJECT_PATH,
+                None,
+                Gio.DBusSignalFlags.NONE,
+                on_windows_changed,
+            ),
+        ]
         self._watch_id = Gio.bus_watch_name_on_connection(
             connection,
             WATCHER_BUS_NAME,
@@ -101,21 +215,12 @@ class WindowWatcher:
             on_appeared,
             on_vanished,
         )
-        self._subscription_id = connection.signal_subscribe(
-            WATCHER_BUS_NAME,
-            WATCHER_INTERFACE,
-            "FocusChanged",
-            WATCHER_OBJECT_PATH,
-            None,
-            Gio.DBusSignalFlags.NONE,
-            on_focus_changed,
-        )
 
     def stop(self) -> None:
         if self._connection is not None:
-            if self._subscription_id is not None:
-                self._connection.signal_unsubscribe(self._subscription_id)
-                self._subscription_id = None
+            for subscription_id in self._subscription_ids:
+                self._connection.signal_unsubscribe(subscription_id)
+            self._subscription_ids = []
             if self._watch_id is not None:
                 import gi
 

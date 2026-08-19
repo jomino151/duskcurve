@@ -73,6 +73,7 @@ class WindowStatus:
     app_id: str
     fullscreen: bool
     monitor_connector: str
+    focused: bool = True
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,7 @@ class Status:
     window: WindowStatus | None
     next_transition: str | None
     theme: ThemeStatus = ThemeStatus()
+    windows: tuple[WindowStatus, ...] = ()
 
     def display(self, connector: str) -> "DisplayStatus | None":
         for d in self.displays:
@@ -156,6 +158,7 @@ def _parse_window(raw: object) -> WindowStatus | None:
         app_id=app_id,
         fullscreen=bool(raw.get("fullscreen", False)),
         monitor_connector=str(raw.get("monitor_connector", "")),
+        focused=bool(raw.get("focused", True)),
     )
 
 
@@ -174,11 +177,23 @@ def parse_status(json_text: str) -> Status:
         displays = tuple(d for d in (_parse_display(e) for e in entries) if d is not None)
 
     next_transition = raw.get("next_transition")
+    window = _parse_window(raw.get("window"))
+
+    windows_entries = raw.get("windows")
+    windows: tuple[WindowStatus, ...]
+    if isinstance(windows_entries, list):
+        windows = tuple(
+            w for w in (_parse_window(e) for e in windows_entries) if w is not None
+        )
+    else:
+        windows = (window,) if window is not None else ()
+
     return Status(
         mode=str(raw.get("mode", "")),
         paused=bool(raw.get("paused", False)),
         displays=displays,
-        window=_parse_window(raw.get("window")),
+        window=window,
         next_transition=None if next_transition is None else str(next_transition),
         theme=ThemeStatus.from_raw(raw.get("theme")),
+        windows=windows,
     )

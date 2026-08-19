@@ -10,6 +10,7 @@ from fluxmax.daemon.watcher import (
     WATCHER_OBJECT_PATH,
     WindowWatcher,
     decode_focus_payload,
+    decode_windows_payload,
 )
 
 
@@ -36,9 +37,108 @@ def test_decode_coerces_fullscreen_to_bool():
     assert got.monitor_connector == ""
 
 
+def test_decode_windows_empty_payload():
+    assert decode_windows_payload([]) == (None, ())
+
+
+def test_decode_windows_splits_focused_from_unfocused():
+    focused, unfocused = decode_windows_payload([
+        ("mpv", True, False, "DP-2"),
+        ("org.gnome.Console", False, True, "HDMI-1"),
+    ])
+    assert focused == WindowState("org.gnome.Console", False, "HDMI-1")
+    assert unfocused == (WindowState("mpv", True, "DP-2"),)
+
+
+def test_decode_windows_drops_blank_app_ids():
+    focused, unfocused = decode_windows_payload([
+        ("", True, False, "DP-2"), ("  ", False, True, "HDMI-1"),
+    ])
+    assert focused is None
+    assert unfocused == ()
+
+
+def test_decode_windows_keeps_only_the_first_focused_entry():
+    focused, unfocused = decode_windows_payload([
+        ("a", False, True, "DP-2"), ("b", True, True, "HDMI-1"),
+    ])
+    assert focused == WindowState("a", False, "DP-2")
+    assert unfocused == (WindowState("b", True, "HDMI-1"),)
+
+
+def test_decode_windows_coerces_types():
+    focused, unfocused = decode_windows_payload([("a", 1, 0, "")])
+    assert focused is None
+    assert unfocused == (WindowState("a", True, ""),)
+
+
+def test_negotiation_prefers_getwindows():
+    seen = []
+    w = WindowWatcher(lambda f, u: seen.append((f, u)))
+    w._negotiate(lambda name: [("mpv", True, False, "DP-2")]
+                 if name == "GetWindows" else pytest.fail("legacy path used"))
+    assert w._modern is True
+    assert seen == [(None, (WindowState("mpv", True, "DP-2"),))]
+
+
+def test_negotiation_falls_back_when_getwindows_is_unknown():
+    seen = []
+    w = WindowWatcher(lambda f, u: seen.append((f, u)))
+
+    def call(name):
+        if name == "GetWindows":
+            raise RuntimeError("GDBus.Error:...UnknownMethod")
+        return ("mpv", True, "DP-2")
+
+    w._negotiate(call)
+    assert w._modern is False
+    assert seen == [(WindowState("mpv", True, "DP-2"), ())]
+
+
+def test_windows_changed_is_ignored_on_the_legacy_path():
+    seen = []
+    w = WindowWatcher(lambda f, u: seen.append((f, u)))
+    w._modern = False
+    w._handle_windows_changed([("mpv", True, False, "DP-2")])
+    assert seen == []
+
+
+def test_focus_changed_is_ignored_on_the_modern_path():
+    seen = []
+    w = WindowWatcher(lambda f, u: seen.append((f, u)))
+    w._modern = True
+    w._handle_focus_changed("mpv", True, "DP-2")
+    assert seen == []
+
+
+def test_a_raising_callback_does_not_escape_the_handlers():
+    def boom(_f, _u):
+        raise RuntimeError("boom")
+
+    w = WindowWatcher(boom)
+    w._modern = True
+    w._handle_windows_changed([("mpv", True, False, "DP-2")])   # must not raise
+
+
+def test_stop_unsubscribes_both_signal_subscriptions():
+    class _FakeConnection:
+        def __init__(self):
+            self.unsubscribed = []
+
+        def signal_unsubscribe(self, subscription_id):
+            self.unsubscribed.append(subscription_id)
+
+    w = WindowWatcher(lambda f, u: None)
+    fake = _FakeConnection()
+    w._connection = fake
+    w._subscription_ids = [11, 22]
+    w.stop()
+    assert sorted(fake.unsubscribed) == [11, 22]
+
+
 def test_construction_does_no_dbus_work():
     seen = []
-    w = WindowWatcher(seen.append)
+    w = WindowWatcher(lambda f, u: seen.append((f, u)))
     assert seen == []
     w.stop()          # safe without start()
 
@@ -273,15 +373,18 @@ def test_producer_consumer_round_trip_over_live_dbus(test_bus_address):
     producer.start()
     producer.wait_ready()
 
-    received: list[WindowState | None] = []
-    watcher = WindowWatcher(received.append)
+    received: list[tuple[WindowState | None, tuple[WindowState, ...]]] = []
+    watcher = WindowWatcher(lambda focused, unfocused: received.append((focused, unfocused)))
     try:
         watcher.start()
 
-        # GetState() seed fetched on name-appeared.
+        # The stub producer only exports GetState -- GetWindows is unknown,
+        # so negotiation must fall back to the legacy protocol.
         assert _pump_until(lambda: len(received) >= 1), "timed out waiting for GetState seed"
-        assert received[0] == WindowState(
-            app_id="org.gimp.GIMP", fullscreen=True, monitor_connector="DP-2"
+        assert watcher._modern is False
+        assert received[0] == (
+            WindowState(app_id="org.gimp.GIMP", fullscreen=True, monitor_connector="DP-2"),
+            (),
         )
 
         # A live FocusChanged signal. emit_signal() is documented thread-safe
@@ -296,8 +399,9 @@ def test_producer_consumer_round_trip_over_live_dbus(test_bus_address):
             GLib.Variant("(sbs)", ("org.mozilla.firefox", False, "HDMI-1")),
         )
         assert _pump_until(lambda: len(received) >= 1), "timed out waiting for FocusChanged"
-        assert received[0] == WindowState(
-            app_id="org.mozilla.firefox", fullscreen=False, monitor_connector="HDMI-1"
+        assert received[0] == (
+            WindowState(app_id="org.mozilla.firefox", fullscreen=False, monitor_connector="HDMI-1"),
+            (),
         )
 
         # An empty app_id decodes to "no focused window".
@@ -310,7 +414,7 @@ def test_producer_consumer_round_trip_over_live_dbus(test_bus_address):
             GLib.Variant("(sbs)", ("", False, "")),
         )
         assert _pump_until(lambda: len(received) >= 1), "timed out waiting for empty FocusChanged"
-        assert received[0] is None
+        assert received[0] == (None, ())
     finally:
         watcher.stop()
         producer.stop()

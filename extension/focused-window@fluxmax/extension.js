@@ -2,6 +2,7 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 import {WindowWatcherService} from './dbus.js';
 import {MonitorMap} from './monitors.js';
+import {WindowTracker} from './windows.js';
 
 export default class FocusedWindowExtension extends Extension {
     enable() {
@@ -17,12 +18,19 @@ export default class FocusedWindowExtension extends Extension {
         this._service = null;
         this._monitors = null;
         this._monitorManager = null;
+        this._tracker = null;
 
         try {
             this._service = new WindowWatcherService();
             this._monitors = new MonitorMap();
 
             this._service.export();
+
+            // Created after the service and monitor map so that its
+            // onChanged callback (=> this._publish()) always has both
+            // available; _publish() itself guards on this._service being
+            // set regardless, in case a callback lands mid-teardown.
+            this._tracker = new WindowTracker(() => this._publish());
 
             this._displaySignalId = global.display.connect('notify::focus-window', () => {
                 this._onFocusChanged();
@@ -113,28 +121,45 @@ export default class FocusedWindowExtension extends Extension {
 
     _publish() {
         // Same rationale as _onFocusChanged(): a refresh() callback (from
-        // enable()'s initial refresh or the monitors-changed handler) can
-        // land after disable() has torn everything down. Without this
-        // guard, this._service.update(...) below would throw on a null
-        // service.
+        // enable()'s initial refresh or the monitors-changed handler), or
+        // a WindowTracker onChanged callback, can land after disable() has
+        // torn everything down. Without this guard, this._service.
+        // updateWindows(...) below would throw on a null service.
         if (!this._service)
             return;
 
         const win = global.display.focus_window;
+        const entries = [];
 
-        if (win === null) {
-            this._service.update('', false, '');
-            return;
+        if (win !== null) {
+            const appId = win.get_gtk_application_id() ??
+                win.get_sandboxed_app_id() ??
+                win.get_wm_class() ??
+                '';
+            const fullscreen = win.is_fullscreen();
+            const connector = this._monitors.connectorFor(win.get_monitor());
+            entries.push([appId, fullscreen, true, connector]);
         }
 
-        const appId = win.get_gtk_application_id() ??
-            win.get_sandboxed_app_id() ??
-            win.get_wm_class() ??
-            '';
-        const fullscreen = win.is_fullscreen();
-        const connector = this._monitors.connectorFor(win.get_monitor());
+        // The focused window (if any) first, exactly as above, then every
+        // other visible fullscreen window, each published as unfocused.
+        for (const other of this._tracker?.visibleFullscreenWindows() ?? []) {
+            if (other === win)
+                continue;
 
-        this._service.update(appId, fullscreen, connector);
+            try {
+                const appId = other.get_gtk_application_id() ??
+                    other.get_sandboxed_app_id() ??
+                    other.get_wm_class() ??
+                    '';
+                const connector = this._monitors.connectorFor(other.get_monitor());
+                entries.push([appId, true, false, connector]);
+            } catch (e) {
+                console.warn(`focused-window@fluxmax: _publish() failed to read a window: ${e}`);
+            }
+        }
+
+        this._service.updateWindows(entries);
     }
 
     disable() {
@@ -171,10 +196,17 @@ export default class FocusedWindowExtension extends Extension {
         } catch (e) {
             console.warn(`focused-window@fluxmax: disable() teardown error: ${e}`);
         } finally {
+            // Unexport/null the service (releasing the bus name) first, so
+            // that even if this._tracker.destroy() were somehow to throw
+            // (it should not -- its own teardown is fully try/catch'd
+            // internally) the bus name is still guaranteed to be released
+            // and the next enable() cannot collide with a still-owned name.
             this._service?.unexport();
             this._service = null;
             this._monitors = null;
             this._monitorManager = null;
+            this._tracker?.destroy();
+            this._tracker = null;
         }
     }
 }

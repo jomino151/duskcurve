@@ -4,5 +4,6 @@
   "description": "Publishes the focused window's app-id, fullscreen state and monitor connector on the session bus for the flux-max daemon.",
   "shell-version": ["46"],
   "session-modes": ["user"],
+  "version": 2,
   "url": "https://github.com/jomino151/f.lux-max"
 }

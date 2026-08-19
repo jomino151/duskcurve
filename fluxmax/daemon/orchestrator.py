@@ -6,7 +6,7 @@ gi/D-Bus/GLib import in this module.
 """
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -68,6 +68,7 @@ class Orchestrator:
         # connector -> (kelvin, expiry); connector "" applies to all connectors.
         self._manual: dict[str, tuple[float, datetime | None]] = {}
         self._window: WindowState | None = None
+        self._unfocused: tuple[WindowState, ...] = ()
         self._prev_actions: dict[str, RuleAction] = {}
         # Desktop theme. `_theme_mode` is the mode this daemon last APPLIED, not
         # the mode that is desired: None means "nothing applied yet", which is
@@ -162,9 +163,13 @@ class Orchestrator:
         for display in self._backend.list_displays():
             self._pacing[display.connector] = category
 
-    def set_window_state(self, window: WindowState | None) -> None:
-        """Store the focused/fullscreen window state. Does not tick; the caller must."""
+    def set_window_state(
+        self, window: WindowState | None, unfocused: Sequence[WindowState] = ()
+    ) -> None:
+        """Store the focused/fullscreen window state, plus any unfocused fullscreen
+        windows elsewhere on the desktop. Does not tick; the caller must."""
         self._window = window
+        self._unfocused = tuple(unfocused)
 
     def on_monitors_changed(self) -> None:
         connectors = {d.connector for d in self._backend.list_displays()}
@@ -187,7 +192,11 @@ class Orchestrator:
         displays = self._backend.list_displays()
         connectors = [d.connector for d in displays]
         actions = resolve_rules(
-            self._window, self._config.rules, connectors, day_kelvin=self._config.max_kelvin
+            self._window,
+            self._config.rules,
+            connectors,
+            day_kelvin=self._config.max_kelvin,
+            unfocused=self._unfocused,
         )
 
         for display in displays:
@@ -288,6 +297,7 @@ class Orchestrator:
             self._config.rules,
             [d.connector for d in displays],
             day_kelvin=self._config.max_kelvin,
+            unfocused=self._unfocused,
         )
 
         per_display = []
@@ -329,6 +339,30 @@ class Orchestrator:
             expiry = self._theme_manual[1]
             if expiry is not None:
                 manual_theme_expires_in_s = max(0, round((expiry - now).total_seconds()))
+
+        # "windows" is additive alongside "window": the focused entry (if any)
+        # comes first with focused=True, then each unfocused fullscreen entry
+        # with focused=False. "window" itself keeps its exact current shape.
+        windows = []
+        if self._window is not None:
+            windows.append(
+                {
+                    "app_id": self._window.app_id,
+                    "fullscreen": self._window.fullscreen,
+                    "focused": True,
+                    "monitor_connector": self._window.monitor_connector,
+                }
+            )
+        for w in self._unfocused:
+            windows.append(
+                {
+                    "app_id": w.app_id,
+                    "fullscreen": w.fullscreen,
+                    "focused": False,
+                    "monitor_connector": w.monitor_connector,
+                }
+            )
+
         return {
             "mode": self._config.mode,
             "paused": self._paused,
@@ -341,6 +375,7 @@ class Orchestrator:
                 "fullscreen": self._window.fullscreen,
                 "monitor_connector": self._window.monitor_connector,
             },
+            "windows": windows,
             "theme": {
                 "enabled": self._config.theme.enabled,
                 "mode": self._theme_mode,
