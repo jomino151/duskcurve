@@ -398,6 +398,18 @@ def _validate_rule(raw: dict) -> Rule:
             "a rule with neither matches every window forever"
         )
 
+    match_unfocused = raw.get("match_unfocused", False)
+    if not isinstance(match_unfocused, bool):
+        raise ConfigError(
+            f"[[rules]] match_unfocused must be a bool, got {match_unfocused!r}"
+        )
+    if match_unfocused and match_fullscreen is not True:
+        raise ConfigError(
+            "[[rules]] match_unfocused = true requires match_fullscreen = true; "
+            "only fullscreen windows are reported while unfocused, so the rule "
+            "could never match"
+        )
+
     scope = raw.get("scope", "window_monitor")
     if not isinstance(scope, str) or not scope:
         raise ConfigError(f"[[rules]] scope must be a non-empty string, got {scope!r}")
@@ -408,6 +420,7 @@ def _validate_rule(raw: dict) -> Rule:
         match_fullscreen=match_fullscreen,
         action_kelvin=action_kelvin,
         scope=scope,
+        match_unfocused=match_unfocused,
     )
 
 
@@ -567,6 +580,8 @@ def dump_config(cfg: Config) -> str:
         if rule.match_app_glob is not None:
             lines.append(f"match_app_glob = {_fmt_str(rule.match_app_glob)}")
         lines.append(f"match_fullscreen = {_fmt_bool(rule.match_fullscreen)}")
+        if rule.match_unfocused:
+            lines.append(f"match_unfocused = {_fmt_bool(rule.match_unfocused)}")
         lines.append(f"action = {_fmt_str(rule.action)}")
         if rule.action_kelvin is not None:
             lines.append(f"action_kelvin = {int(rule.action_kelvin)}")

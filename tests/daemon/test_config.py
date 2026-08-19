@@ -518,6 +518,58 @@ scope = "all"
     )
 
 
+def test_match_unfocused_defaults_to_false():
+    cfg = load_config(_base_toml() + """
+[[rules]]
+match_fullscreen = true
+action = "disable"
+""")
+    assert cfg.rules[0].match_unfocused is False
+
+
+def test_match_unfocused_is_parsed():
+    cfg = load_config(_base_toml() + """
+[[rules]]
+match_fullscreen = true
+match_unfocused = true
+action = "disable"
+""")
+    assert cfg.rules[0].match_unfocused is True
+
+
+def test_match_unfocused_requires_match_fullscreen():
+    with pytest.raises(ConfigError, match="match_unfocused"):
+        load_config(_base_toml() + """
+[[rules]]
+match_app_glob = "mpv"
+match_unfocused = true
+action = "disable"
+""")
+
+
+def test_match_unfocused_must_be_a_bool():
+    with pytest.raises(ConfigError, match="match_unfocused"):
+        load_config(_base_toml() + """
+[[rules]]
+match_fullscreen = true
+match_unfocused = "yes"
+action = "disable"
+""")
+
+
+def test_round_trip_preserves_match_unfocused():
+    rule = Rule(action="fixed", action_kelvin=3400, match_app_glob="mpv",
+                match_fullscreen=True, match_unfocused=True, scope="DP-2")
+    cfg = replace(default_config(), rules=(rule,))
+    assert load_config(dump_config(cfg)).rules == (rule,)
+
+
+def test_dump_omits_match_unfocused_when_false():
+    cfg = replace(default_config(),
+                  rules=(Rule(action="disable", match_fullscreen=True),))
+    assert "match_unfocused" not in dump_config(cfg)
+
+
 @pytest.mark.parametrize(
     "block",
     [
