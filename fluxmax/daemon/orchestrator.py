@@ -35,6 +35,15 @@ NEUTRAL_KELVIN = 6500.0
 # "schedule". Well under a perceptible step at any temperature.
 _CONVERGED_KELVIN = 1.0
 
+# A ramp is only re-sent when its temperature moved by at least this much
+# since the last push (well under a perceptible step), or when REPUSH_AFTER
+# has passed. Every SetCrtcGamma costs gnome-shell a KMS gamma commit, so
+# re-sending an identical ramp every tick is the daemon's main idle cost.
+_PUSH_KELVIN = 0.5
+# Unchanged ramps are still re-sent this often, to self-heal a gamma table
+# reset behind the daemon's back (resume, VT switch, another tool).
+REPUSH_AFTER = timedelta(seconds=60)
+
 _EVENT_ANCHORS = frozenset({"sunrise", "sunset", "wake", "bedtime"})
 
 
@@ -88,6 +97,8 @@ class Orchestrator:
         # transition keeps its own rate the whole way instead of reverting to
         # the schedule's rate after the first tick.
         self._pacing: dict[str, str] = {}
+        # connector -> (kelvin, ramp, pushed_at) of the last SUCCESSFUL push.
+        self._pushed: dict[str, tuple[float, tuple[list[int], list[int], list[int]], datetime]] = {}
 
     def set_config(self, config: Config) -> None:
         # Note: a display's enabled flag needs no pacing entry. `enabled` is an
@@ -172,6 +183,9 @@ class Orchestrator:
         self._unfocused = tuple(unfocused)
 
     def on_monitors_changed(self) -> None:
+        # A hotplug or mode change can reset a CRTC's gamma table (and change
+        # its ramp size), so the next tick must re-send everything.
+        self._pushed.clear()
         connectors = {d.connector for d in self._backend.list_displays()}
         for connector in list(self._current_k):
             if connector not in connectors:
@@ -238,11 +252,23 @@ class Orchestrator:
 
             self._current_k[connector] = current_k
             applied_k = self._apply_enabled_mask(connector, current_k)
-            red, green, blue = build_ramp(display.ramp_size, applied_k)
-            self._backend.apply_ramp(connector, red, green, blue)
+            self._push(connector, display.ramp_size, applied_k, now)
 
         self._last_tick_dt = now
         self._tick_theme(now, ctx)
+
+    def _push(self, connector: str, ramp_size: int, kelvin: float, now: datetime) -> None:
+        last = self._pushed.get(connector)
+        if last is not None and abs(kelvin - last[0]) < _PUSH_KELVIN:
+            since = now - last[2]
+            # A negative gap is a wall clock stepped backwards: re-push.
+            if timedelta(0) <= since < REPUSH_AFTER:
+                return
+            kelvin, ramp = last[0], last[1]
+        else:
+            ramp = build_ramp(ramp_size, kelvin)
+        self._backend.apply_ramp(connector, *ramp)
+        self._pushed[connector] = (kelvin, ramp, now)
 
     def _theme_manual_mode(self, now: datetime) -> str | None:
         """The manual theme override in force, evicting it if it has expired."""

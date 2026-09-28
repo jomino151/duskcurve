@@ -1124,3 +1124,114 @@ def test_an_unfocused_rule_engages_at_rule_pace_not_schedule_pace():
 
     per = {d["connector"]: d for d in orch.status()["per_display"]}
     assert per["DP-2"]["current_k"] == round(NEUTRAL_KELVIN)
+
+
+# --- Idle cost: redundant SetCrtcGamma pushes are skipped -------------------
+
+
+def test_steady_state_ticks_do_not_repush_an_unchanged_ramp():
+    # At noon the curve is flat: after the first push, a tick that would send
+    # the exact same ramp must not call SetCrtcGamma at all. Every redundant
+    # push costs gnome-shell a KMS gamma commit.
+    clock = FakeClock(_dt(13, 0))
+    _be, t, orch = _new(default_config(), clock)
+    orch.tick()
+    assert len(t.set_calls) == 2  # one per display
+    for _ in range(10):
+        clock.advance(2)
+        orch.tick()
+    assert len(t.set_calls) == 2
+
+
+def test_unchanged_ramp_is_repushed_every_60_seconds():
+    # Self-healing: something outside the daemon (resume, VT switch, Night
+    # Light) can reset gamma, so an unchanged ramp is still re-sent once a
+    # minute.
+    clock = FakeClock(_dt(13, 0))
+    _be, t, orch = _new(default_config(), clock)
+    orch.tick()
+    clock.advance(58)
+    orch.tick()
+    assert len(t.set_calls) == 2
+    clock.advance(2)
+    orch.tick()
+    assert len(t.set_calls) == 4
+    assert t.set_calls[2][2:] == t.set_calls[0][2:]
+
+
+def test_a_clock_step_backwards_forces_a_repush():
+    # A wall clock stepped back (NTP, resume) makes "time since last push"
+    # negative; that must not suppress re-pushing for however long the step was.
+    clock = FakeClock(_dt(13, 0))
+    _be, t, orch = _new(default_config(), clock)
+    orch.tick()
+    clock.advance(-3600)
+    orch.tick()
+    assert len(t.set_calls) == 4
+
+
+def test_a_changed_temperature_is_pushed_immediately():
+    clock = FakeClock(_dt(13, 0))
+    be, t, orch = _new(default_config(), clock)
+    orch.tick()
+    clock.advance(2)
+    orch.set_manual_temp("DP-2", 2000, 0)
+    orch.tick()
+    assert len(t.set_calls) == 3  # only DP-2 changed
+    assert be.get_gamma("DP-2") == build_ramp(4096, 2000)
+
+
+def test_monitors_changed_forces_a_repush():
+    # A hotplug/mode change can leave a CRTC with a reset gamma table, so the
+    # next tick must re-send even if the temperature has not moved.
+    clock = FakeClock(_dt(13, 0))
+    _be, t, orch = _new(default_config(), clock)
+    orch.tick()
+    orch.on_monitors_changed()
+    clock.advance(2)
+    orch.tick()
+    assert len(t.set_calls) == 4
+
+
+def test_a_failed_push_is_retried_on_the_next_tick():
+    # Only a push that succeeded counts as applied; otherwise a transient
+    # D-Bus failure would leave the display wrong for up to a minute.
+    clock = FakeClock(_dt(13, 0))
+    be, t, orch = _new(default_config(), clock)
+    real_apply = be.apply_ramp
+    failures = {"left": 2}
+
+    def flaky_apply(connector, r, g, b):
+        if failures["left"]:
+            failures["left"] -= 1
+            raise RuntimeError("bus hiccup")
+        real_apply(connector, r, g, b)
+
+    be.apply_ramp = flaky_apply
+    with pytest.raises(RuntimeError):
+        orch.tick()
+    with pytest.raises(RuntimeError):
+        orch.tick()
+    clock.advance(2)
+    orch.tick()
+    assert len(t.set_calls) == 2
+
+
+def test_the_periodic_repush_reuses_the_ramp_instead_of_rebuilding(monkeypatch):
+    import fluxmax.daemon.orchestrator as orch_mod
+
+    builds = []
+    real_build = orch_mod.build_ramp
+
+    def counting_build(size, kelvin):
+        builds.append(kelvin)
+        return real_build(size, kelvin)
+
+    monkeypatch.setattr(orch_mod, "build_ramp", counting_build)
+    clock = FakeClock(_dt(13, 0))
+    _be, t, orch = _new(default_config(), clock)
+    for _ in range(40):  # 80 s: one periodic repush in there
+        orch.tick()
+        clock.advance(2)
+    assert len(t.set_calls) == 4
+    assert len(builds) == 2
