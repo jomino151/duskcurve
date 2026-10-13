@@ -313,15 +313,15 @@ class _ProducerThread(threading.Thread):
         self._bus_address = bus_address
         self._iface_xml = iface_xml
         self._get_state_seed = get_state_seed
-        self._context = GLib.MainContext.new()
-        self._loop = GLib.MainLoop.new(self._context, False)
+        self._main_context = GLib.MainContext.new()
+        self._loop = GLib.MainLoop.new(self._main_context, False)
         self._ready = threading.Event()
         self._error: Exception | None = None
         self.connection = None
         self.registration_id = None
 
     def run(self) -> None:
-        self._context.push_thread_default()
+        self._main_context.push_thread_default()
         try:
             flags = (
                 Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
@@ -344,7 +344,7 @@ class _ProducerThread(threading.Thread):
             for _ in range(2000):
                 if owned:
                     break
-                self._context.iteration(True)
+                self._main_context.iteration(True)
             if not owned:
                 raise AssertionError(f"producer thread timed out acquiring {WATCHER_BUS_NAME}")
         except Exception as exc:  # noqa: BLE001 -- surfaced to the test thread below

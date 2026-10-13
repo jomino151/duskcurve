@@ -114,8 +114,8 @@ class _StubDaemon(threading.Thread):
         super().__init__(daemon=True)
         self._bus_address = bus_address
         self._interface_info = interface_info
-        self._context = GLib.MainContext.new()
-        self._loop = GLib.MainLoop.new(self._context, False)
+        self._main_context = GLib.MainContext.new()
+        self._loop = GLib.MainLoop.new(self._main_context, False)
         self._ready = threading.Event()
         self._error: Exception | None = None
         self._owner_id: int | None = None
@@ -188,7 +188,7 @@ class _StubDaemon(threading.Thread):
         return GLib.SOURCE_REMOVE
 
     def run(self) -> None:
-        self._context.push_thread_default()
+        self._main_context.push_thread_default()
         try:
             flags = (
                 Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
@@ -211,13 +211,13 @@ class _StubDaemon(threading.Thread):
             for _ in range(2000):
                 if owned:
                     break
-                self._context.iteration(True)
+                self._main_context.iteration(True)
             if not owned:
                 raise AssertionError(f"stub daemon timed out acquiring {DAEMON_BUS_NAME}")
         except Exception as exc:  # noqa: BLE001 -- surfaced to the test thread below
             self._error = exc
             self._ready.set()
-            self._context.pop_thread_default()
+            self._main_context.pop_thread_default()
             return
 
         # IMPORTANT (this was the segfault): do not set self._ready here.
@@ -232,12 +232,12 @@ class _StubDaemon(threading.Thread):
         # holding a live GDBusConnection into a torn-down TestDBus and racing
         # CPython's interpreter shutdown against gi._gi -- observed as a
         # segfault when a later test module's teardown runs. Scheduling an
-        # idle source on self._context and only setting self._ready from
+        # idle source on self._main_context and only setting self._ready from
         # within it guarantees run() has genuinely started dispatching
         # before any caller can conclude "ready" and proceed to quit().
         idle_source = GLib.idle_source_new()
         idle_source.set_callback(self._mark_ready)
-        idle_source.attach(self._context)
+        idle_source.attach(self._main_context)
 
         self._loop.run()
 
@@ -257,7 +257,7 @@ class _StubDaemon(threading.Thread):
         except Exception:  # noqa: BLE001 -- best-effort teardown, never crash the thread
             pass
         finally:
-            self._context.pop_thread_default()
+            self._main_context.pop_thread_default()
 
     def wait_ready(self, timeout: float = 5.0) -> None:
         if not self._ready.wait(timeout):
