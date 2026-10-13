@@ -106,7 +106,7 @@ export default class FocusedWindowExtension extends Extension {
 
         if (win !== null) {
             this._fullscreenId = win.connect('notify::fullscreen', () => this._publish());
-            this._monitorChangedId = win.connect('monitor-changed', () => this._publish());
+            this._monitorChangedId = win.connect('notify::main-monitor', () => this._publish());
             // Clear _focusWindow as soon as Mutter starts unmanaging this
             // window, i.e. before g_object_run_dispose() runs on it, so a
             // later disconnect() above never touches an already-disposed

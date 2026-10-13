@@ -76,7 +76,7 @@ export class WindowTracker {
         try {
             entry.fullscreenId = win.connect('notify::fullscreen', () => this._changed());
             entry.minimizedId = win.connect('notify::minimized', () => this._changed());
-            entry.monitorChangedId = win.connect('monitor-changed', () => this._changed());
+            entry.monitorChangedId = win.connect('notify::main-monitor', () => this._changed());
             entry.workspaceChangedId = win.connect('workspace-changed', () => this._changed());
             // Clear this window's tracking entry as soon as Mutter starts
             // unmanaging it, i.e. before g_object_run_dispose() runs on
