@@ -98,7 +98,16 @@ if ! "$FLUXMAX_PYTHON" -c 'import gi; gi.require_foreign("cairo")' 2>/dev/null; 
 fi
 
 # --- 3. venv + package -------------------------------------------------------
+# A distro upgrade swaps the system python under the venv (its bin/python3 is a
+# symlink), leaving site-packages under the old lib/pythonX.Y -- rebuild it.
+_py_ver="$("$FLUXMAX_PYTHON" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+if [ -d "$FLUXMAX_VENV" ] && [ ! -d "$FLUXMAX_VENV/lib/python$_py_ver" ]; then
+    log "Rebuilding the virtualenv for python $_py_ver"
+    rm -rf "$FLUXMAX_VENV"
+fi
 if [ ! -x "$FLUXMAX_VENV/bin/pip" ]; then
+    "$FLUXMAX_PYTHON" -c 'import ensurepip' 2>/dev/null \
+        || die "python venv support is missing: sudo apt install python3-venv"
     log "Creating the virtualenv at $FLUXMAX_VENV"
     mkdir -p "$FLUXMAX_HOME"
     # --system-site-packages so the venv inherits the system gi and the cairo
