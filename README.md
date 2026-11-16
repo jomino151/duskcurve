@@ -1,5 +1,5 @@
-# flux-max
-GNOME/Wayland-native, f.lux-equivalent blue-light filter. GPL-3.0-or-later.
+# Duskcurve
+GNOME/Wayland-native, blue-light filter. GPL-3.0-or-later.
 
 ## Requirements
 
@@ -133,7 +133,7 @@ scope = "all"
 
 ## Desktop theme switching
 
-Alongside the colour-temperature schedule, flux-max can switch GNOME's light/dark theme at
+Alongside the colour-temperature schedule, Duskcurve can switch GNOME's light/dark theme at
 solar anchors, driven by the same 2-second tick as everything else rather than by a separate
 scheduled timer. That is the whole point of it: a timer scheduled for a clock instant is never
 retried if it fires while the machine is locked, idle, or suspended, so the theme just stays
@@ -143,15 +143,15 @@ very next tick after the machine wakes — no catch-up machinery needed.
 
 It writes up to six things: colour scheme (light/dark), GTK theme, icon theme, shell theme,
 cursor theme, and wallpaper. Each is independently optional — leave a field as `""` (the
-default) and flux-max never touches that setting, light or dark.
+default) and Duskcurve never touches that setting, light or dark.
 
-**Off by default.** Unlike the colour-temperature filter, which is flux-max's own thing to
+**Off by default.** Unlike the colour-temperature filter, which is Duskcurve's own thing to
 control, a desktop theme is a setting the user may already have chosen deliberately. Enable it
 explicitly with `[theme] enabled = true`.
 
 ```toml
 [theme]
-enabled = false          # off by default -- this writes settings flux-max does not own
+enabled = false          # off by default -- this writes settings Duskcurve does not own
 light_from = "sunrise"   # event anchor or "HH:MM", same grammar as schedule keypoints
 light_offset_min = 0
 dark_from = "sunset"
@@ -205,11 +205,11 @@ manual theme set via the D-Bus API or the GUI's Light/Dark buttons overrides the
 it expires or is cleared. **Window rules (`[[rules]]`) never affect the theme** — they only ever
 touch colour temperature, on whichever display they match.
 
-If you change the theme by hand in GNOME Settings, flux-max deliberately does not fight it: the
+If you change the theme by hand in GNOME Settings, Duskcurve deliberately does not fight it: the
 daemon only writes on a mode change, so a hand-picked theme stands until the next light/dark
 boundary, at which point the schedule takes back over as normal.
 
-**flux-max does not restore your previous theme on uninstall** (`./uninstall.sh` does restore
+**Duskcurve does not restore your previous theme on uninstall** (`./uninstall.sh` does restore
 Night Light, which is different). Night Light has one clear "before" value worth recording —
 on or off — but a theme has no equivalent single fact to snapshot: this is a feature you opted
 into and configured by hand, with six independent elements, so there is no one "previous theme"
@@ -222,7 +222,7 @@ extension](https://extensions.gnome.org/extension/19/user-themes/)'s
 daemon logs a warning naming the missing schema and applies every other element normally,
 rather than crashing or skipping the whole variant.
 
-A second theme switcher (e.g. `auto-darkmode-switcher`) writes the same dconf keys flux-max's
+A second theme switcher (e.g. `auto-darkmode-switcher`) writes the same dconf keys Duskcurve's
 `[theme]` feature does, and running both at once fights: the visible result is a theme that
 flips back and forth. `./install.sh` warns if it detects one installed. Disable it before
 enabling `[theme]`:
@@ -239,11 +239,11 @@ systemctl --user disable --now auto-darkmode-switcher.service auto-darkmode-swit
 
 This is idempotent — re-running it is the supported way to upgrade. It:
 
-- creates a `--system-site-packages` virtualenv at `~/.local/share/fluxmax/venv` and installs
-  flux-max into it;
-- symlinks `fluxmax-daemon`, `fluxmax-gui` and `fluxmax-apply` into `~/.local/bin`;
-- installs the icon, desktop entry, the `focused-window@fluxmax` GNOME Shell extension, and the
-  `fluxmax-daemon` systemd user unit;
+- creates a `--system-site-packages` virtualenv at `~/.local/share/duskcurve/venv` and installs
+  Duskcurve into it;
+- symlinks `duskcurve-daemon`, `duskcurve-gui` and `duskcurve-apply` into `~/.local/bin`;
+- installs the icon, desktop entry, the `focused-window@duskcurve` GNOME Shell extension, and the
+  `duskcurve-daemon` systemd user unit;
 - records your current Night Light setting (so `./uninstall.sh` can restore it) and enables and
   starts the daemon — restarting it if it was already running, so an upgrade actually takes
   effect rather than leaving the previous version in memory.
@@ -254,7 +254,7 @@ upgrade will not disturb the running GNOME Shell or your enabled extensions.
 Flags:
 
 - `--dev` — editable install (`pip install -e`) and a symlinked extension, for working on
-  flux-max itself. The default copies both instead, so the install survives the repo being
+  Duskcurve itself. The default copies both instead, so the install survives the repo being
   moved or deleted.
 - `--no-start` — install everything but don't enable or start the daemon.
 - `-h`, `--help` — show usage.
@@ -264,10 +264,10 @@ First run, after `./install.sh` finishes:
 1. **Log out and back in.** On Wayland, GNOME Shell cannot be restarted in place
    (`Alt+F2 r` does not work), so the extension will not load until you do. Until then,
    window rules are inert — the daemon still runs the schedule normally on every display.
-2. Set your location and wake/bedtime, either by launching `fluxmax-gui` or by editing
-   `~/.config/fluxmax/config.toml` directly.
+2. Set your location and wake/bedtime, either by launching `duskcurve-gui` or by editing
+   `~/.config/duskcurve/config.toml` directly.
 
-To remove flux-max:
+To remove Duskcurve:
 
 ```bash
 ./uninstall.sh
@@ -276,7 +276,7 @@ To remove flux-max:
 This stops and removes the daemon unit, resets every display back to 6500 K, restores Night
 Light to the value it had before `./install.sh` ran (or, if that value was never successfully
 recorded, leaves Night Light alone and tells you so), and removes the extension, desktop entry,
-icon, `~/.local/bin` symlinks and venv. Your `~/.config/fluxmax/config.toml` is kept, so a
+icon, `~/.local/bin` symlinks and venv. Your `~/.config/duskcurve/config.toml` is kept, so a
 later reinstall picks up where you left off — pass `--purge` to delete it too.
 
 The curve editor also needs the `python3-gi-cairo` system package (the PyGObject-to-pycairo
@@ -287,8 +287,8 @@ python3-gi-cairo` if it's missing. See the GUI section below for what happens if
 
 Rules need to know which application is focused and whether it's fullscreen. On
 GNOME/Wayland, that information isn't available to a background daemon directly — it
-has to come from inside the shell. The `focused-window@fluxmax` extension in this repo
-publishes that state as a small D-Bus service, `org.fluxmax.WindowWatcher`, which the
+has to come from inside the shell. The `focused-window@duskcurve` extension in this repo
+publishes that state as a small D-Bus service, `org.duskcurve.WindowWatcher`, which the
 daemon's `watcher.py` consumes.
 
 Without the extension installed and enabled, `[[rules]]` are simply inert: the watcher
@@ -313,7 +313,7 @@ comes back rather than staying off over a window you can no longer see.
 
 ## GUI
 
-Launch with `fluxmax-gui` (requires the daemon to be running; if the daemon is not reachable, the app shows a status page instead of working offline, since the daemon owns the configuration and the GUI never edits the config file directly).
+Launch with `duskcurve-gui` (requires the daemon to be running; if the daemon is not reachable, the app shows a status page instead of working offline, since the daemon owns the configuration and the GUI never edits the config file directly).
 
 The curve editor needs the `python3-gi-cairo` system package (the PyGObject-to-pycairo
 bridge) to draw. It's a separate package from `python3-cairo`/pycairo itself, so it's easy
@@ -351,7 +351,7 @@ Whenever a manual override is running, the group description says so, and — if
 
 ### Configuration file warning
 
-Saving from the GUI rewrites `~/.config/fluxmax/config.toml` through the daemon's own serializer, so any hand-written comments, key order, or layout is not preserved. The app shows a one-time banner on the first save of the session confirming this. Users who hand-edit the config file should know this before they lose a comment. The GUI also monitors the file for external changes — if you edit the TOML by hand while the app is open, the daemon picks up the change and the GUI follows it within a couple of seconds.
+Saving from the GUI rewrites `~/.config/duskcurve/config.toml` through the daemon's own serializer, so any hand-written comments, key order, or layout is not preserved. The app shows a one-time banner on the first save of the session confirming this. Users who hand-edit the config file should know this before they lose a comment. The GUI also monitors the file for external changes — if you edit the TOML by hand while the app is open, the daemon picks up the change and the GUI follows it within a couple of seconds.
 
 ### Menu
 
@@ -368,9 +368,9 @@ Pausing and enabling/disabling a display are not in this list: they are hardcode
 
 GPL-3.0-or-later; see [LICENSE](LICENSE).
 
-The blackbody colour table in `fluxmax/color/blackbody_table.py` is taken from
+The blackbody colour table in `duskcurve/color/blackbody_table.py` is taken from
 [redshift](https://github.com/jonls/redshift)'s `src/colorramp.c` (`blackbody_color`), by Jon
-Lund Steffensen, also GPL-3.0. flux-max exists because redshift and its successors cannot work
+Lund Steffensen, also GPL-3.0. Duskcurve exists because redshift and its successors cannot work
 on GNOME/Wayland — Mutter implements neither X11 RANDR gamma nor the wlroots gamma protocols —
 but the colour science is redshift's, and it is why the temperatures here look right rather than
 merely blue-ish.

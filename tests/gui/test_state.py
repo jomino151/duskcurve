@@ -1,9 +1,9 @@
-from fluxmax.daemon.config import (
+from duskcurve.daemon.config import (
     ConfigError,
     default_config,
     dump_config,
 )
-from fluxmax.gui.state import AppState
+from duskcurve.gui.state import AppState
 
 GOOD_STATUS = (
     '{"mode":"classic","paused":false,"per_display":'

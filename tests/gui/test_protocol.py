@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from fluxmax.gui.protocol import DisplayStatus, WindowStatus, parse_status
+from duskcurve.gui.protocol import DisplayStatus, WindowStatus, parse_status
 
 FULL = """
 {

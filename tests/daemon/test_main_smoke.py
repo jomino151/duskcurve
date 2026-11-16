@@ -1,4 +1,4 @@
-"""Lightweight smoke test for the live D-Bus dispatch used by fluxmax.daemon.main.
+"""Lightweight smoke test for the live D-Bus dispatch used by duskcurve.daemon.main.
 
 Task 4.4's reviewer flagged that `service.export_on_connection`'s live dispatch
 (GLib.Variant pack/unpack, ConfigError -> D-Bus error mapping) is untested by
@@ -7,7 +7,7 @@ real bus. This test exercises exactly that path: a real GDBusConnection with
 DaemonService exported, called over the wire.
 
 Uses an isolated private bus via Gio.TestDBus when available (no dependency on
-or interference with any real session bus / real fluxmax daemon). Falls back
+or interference with any real session bus / real duskcurve daemon). Falls back
 to the real session bus only if TestDBus can't come up and
 $DBUS_SESSION_BUS_ADDRESS is set. Skips cleanly (not a failure) if neither is
 reachable in this environment.
@@ -22,17 +22,17 @@ gi = pytest.importorskip("gi")
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio, GLib  # noqa: E402
 
-from fluxmax.backend import FakeMutterTransport, MutterBackend  # noqa: E402
-from fluxmax.daemon.config import default_config, dump_config  # noqa: E402
-from fluxmax.daemon.orchestrator import Orchestrator  # noqa: E402
-from fluxmax.daemon.service import (  # noqa: E402
+from duskcurve.backend import FakeMutterTransport, MutterBackend  # noqa: E402
+from duskcurve.daemon.config import default_config, dump_config  # noqa: E402
+from duskcurve.daemon.orchestrator import Orchestrator  # noqa: E402
+from duskcurve.daemon.service import (  # noqa: E402
     BUS_NAME,
     OBJECT_PATH,
     DaemonService,
     export_on_connection,
 )
 
-_INTERFACE = "org.fluxmax.Daemon"
+_INTERFACE = "org.duskcurve.Daemon"
 
 
 @pytest.fixture

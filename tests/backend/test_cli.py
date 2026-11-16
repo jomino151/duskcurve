@@ -1,7 +1,7 @@
-from fluxmax.backend.cli import main
-from fluxmax.backend.mutter import MutterBackend
-from fluxmax.backend.transport import FakeMutterTransport
-from fluxmax.color import build_ramp
+from duskcurve.backend.cli import main
+from duskcurve.backend.mutter import MutterBackend
+from duskcurve.backend.transport import FakeMutterTransport
+from duskcurve.color import build_ramp
 
 
 def _backend(ramp_size=4096):

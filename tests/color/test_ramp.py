@@ -1,6 +1,6 @@
 import pytest
 
-from fluxmax.color.ramp import build_ramp
+from duskcurve.color.ramp import build_ramp
 
 
 def test_lengths_match_size():

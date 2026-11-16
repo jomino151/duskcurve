@@ -2,8 +2,8 @@ from datetime import datetime
 
 import pytest
 
-from fluxmax.daemon.config import KeypointConfig
-from fluxmax.gui.geometry import (
+from duskcurve.daemon.config import KeypointConfig
+from duskcurve.gui.geometry import (
     Viewport,
     hit_test,
     insert_index,
@@ -14,7 +14,7 @@ from fluxmax.gui.geometry import (
     x_to_minutes,
     y_to_kelvin,
 )
-from fluxmax.schedule.curve import DayContext
+from duskcurve.schedule.curve import DayContext
 
 VP = Viewport(width=1000.0, height=500.0, min_kelvin=1200.0, max_kelvin=6500.0, margin=20.0)
 

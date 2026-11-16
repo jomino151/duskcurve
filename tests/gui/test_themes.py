@@ -1,4 +1,4 @@
-from fluxmax.gui.themes import list_gtk_themes, list_shell_themes
+from duskcurve.gui.themes import list_gtk_themes, list_shell_themes
 
 
 def _tree(tmp_path, spec):

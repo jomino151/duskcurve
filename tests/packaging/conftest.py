@@ -42,11 +42,11 @@ class Sandbox:
             "PATH": f"{self.stub_bin}:{os.environ['PATH']}",
             "STUB_LOG": str(self.stub_log_path),
             "GSETTINGS_STORE": str(self.gsettings_store),
-            "FLUXMAX_PYTHON": str(self.stub_bin / "python3"),
+            "DUSKCURVE_PYTHON": str(self.stub_bin / "python3"),
             # Stub python3 probe outcomes; tests flip these.
             "STUB_GI_OK": "1",
             "STUB_CAIRO_OK": "1",
-            # Exit status for `python3 -m pip show fluxmax`: 1 = not installed,
+            # Exit status for `python3 -m pip show duskcurve`: 1 = not installed,
             # which is the clean-machine default. Tests that exercise the
             # shadowing-old-install warning set this to "0".
             "STUB_PIP_SHOW_OK": "1",

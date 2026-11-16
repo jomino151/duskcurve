@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from fluxmax.gui.client import (
+from duskcurve.gui.client import (
     DAEMON_BUS_NAME,
     DAEMON_INTERFACE,
     DAEMON_OBJECT_PATH,
@@ -13,11 +13,11 @@ from fluxmax.gui.client import (
 
 
 def test_contract_constants_match_the_daemon():
-    from fluxmax.daemon.service import BUS_NAME, OBJECT_PATH
+    from duskcurve.daemon.service import BUS_NAME, OBJECT_PATH
 
-    assert DAEMON_BUS_NAME == BUS_NAME == "org.fluxmax.Daemon"
-    assert DAEMON_OBJECT_PATH == OBJECT_PATH == "/org/fluxmax/Daemon"
-    assert DAEMON_INTERFACE == "org.fluxmax.Daemon"
+    assert DAEMON_BUS_NAME == BUS_NAME == "org.duskcurve.Daemon"
+    assert DAEMON_OBJECT_PATH == OBJECT_PATH == "/org/duskcurve/Daemon"
+    assert DAEMON_INTERFACE == "org.duskcurve.Daemon"
 
 
 def test_construction_does_no_dbus_work():
@@ -30,9 +30,9 @@ def test_construction_does_no_dbus_work():
 
 def test_importing_the_client_does_not_pull_in_gi():
     code = (
-        "import sys; import fluxmax.gui.client; "
+        "import sys; import duskcurve.gui.client; "
         "assert not any(m == 'gi' or m.startswith('gi.') for m in sys.modules), "
-        "'fluxmax.gui.client pulled in gi'"
+        "'duskcurve.gui.client pulled in gi'"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
 
@@ -44,7 +44,7 @@ def test_importing_the_client_does_not_pull_in_gi():
 # argument order, the call_sync marshalling for each method, and
 # result.unpack() against the daemon's actual INTERFACE_XML -- otherwise
 # never executes against a bus. The stub below exports the XML read
-# verbatim from fluxmax/daemon/service.py, so a signature mismatch between
+# verbatim from duskcurve/daemon/service.py, so a signature mismatch between
 # the GUI and the daemon is caught here rather than on hardware.
 # ----------------------------------------------------------------------
 
@@ -92,7 +92,7 @@ def _pump_until(predicate, timeout=5.0):
 
 
 class _StubDaemon(threading.Thread):
-    """Runs the stub org.fluxmax.Daemon producer on its own thread with its
+    """Runs the stub org.duskcurve.Daemon producer on its own thread with its
     own private GMainContext, standing in for the real daemon process.
 
     This mirrors tests/daemon/test_watcher.py's _ProducerThread and is
@@ -300,7 +300,7 @@ def _dbus_environment():
     if _GI_IMPORT_ERROR is not None:
         pytest.skip(f"gi/Gio not available: {_GI_IMPORT_ERROR}")
 
-    from fluxmax.daemon.service import INTERFACE_XML
+    from duskcurve.daemon.service import INTERFACE_XML
 
     test_bus = None
     try:

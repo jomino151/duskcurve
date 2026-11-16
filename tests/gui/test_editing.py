@@ -2,9 +2,9 @@ import dataclasses
 
 import pytest
 
-from fluxmax.daemon.config import KeypointConfig, default_config, dump_config, load_config
-from fluxmax.daemon.rules import Rule, WindowState, resolve_rules
-from fluxmax.gui.editing import (
+from duskcurve.daemon.config import KeypointConfig, default_config, dump_config, load_config
+from duskcurve.daemon.rules import Rule, WindowState, resolve_rules
+from duskcurve.gui.editing import (
     add_rule,
     config_to_keypoint,
     delete_keypoint,
@@ -22,15 +22,15 @@ from fluxmax.gui.editing import (
     with_keypoints,
     with_rules,
 )
-from fluxmax.gui.protocol import Status, WindowStatus
-from fluxmax.gui.rules_logic import (
+from duskcurve.gui.protocol import Status, WindowStatus
+from duskcurve.gui.rules_logic import (
     _rule_validation_error,
     _summarize,
     _window_states,
     _winning_indices,
 )
-from fluxmax.schedule.curve import ClockAnchor, EventAnchor, Keypoint
-from fluxmax.schedule.modes import MODES
+from duskcurve.schedule.curve import ClockAnchor, EventAnchor, Keypoint
+from duskcurve.schedule.modes import MODES
 
 
 def test_event_keypoint_round_trips():

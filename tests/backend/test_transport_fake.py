@@ -1,6 +1,6 @@
 import pytest
 
-from fluxmax.backend.transport import FakeMutterTransport, StaleSerialError
+from duskcurve.backend.transport import FakeMutterTransport, StaleSerialError
 
 
 def test_get_resources_shape():

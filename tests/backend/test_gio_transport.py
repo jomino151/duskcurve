@@ -4,8 +4,8 @@ gi = pytest.importorskip("gi")
 gi.require_version("GLib", "2.0")
 from gi.repository import GLib  # noqa: E402
 
-from fluxmax.backend.gio_transport import _params  # noqa: E402
-from fluxmax.color import build_ramp  # noqa: E402
+from duskcurve.backend.gio_transport import _params  # noqa: E402
+from duskcurve.color import build_ramp  # noqa: E402
 
 
 def test_set_crtc_gamma_params_match_the_plain_variant_exactly():

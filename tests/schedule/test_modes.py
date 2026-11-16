@@ -3,9 +3,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from fluxmax.schedule.curve import Curve, DayContext
-from fluxmax.schedule.modes import DEFAULT_CURVE, MODES
-from fluxmax.schedule.solar import solar_events
+from duskcurve.schedule.curve import Curve, DayContext
+from duskcurve.schedule.modes import DEFAULT_CURVE, MODES
+from duskcurve.schedule.solar import solar_events
 
 BERLIN = ZoneInfo("Europe/Berlin")
 DAY = date(2026, 7, 25)

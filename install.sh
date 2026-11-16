@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# flux-max installer. Rootless except for one prompted `sudo apt` step.
+# Duskcurve installer. Rootless except for one prompted `sudo apt` step.
 # Idempotent: re-running is the supported upgrade path.
 set -euo pipefail
 
@@ -15,7 +15,7 @@ usage() {
 Usage: ./install.sh [--dev] [--no-start]
 
   --dev       Editable install (pip -e) and symlink the extension, for
-              working on flux-max itself. The default copies instead, so
+              working on Duskcurve itself. The default copies instead, so
               the install survives the repo being moved or deleted.
   --no-start  Install everything but do not enable or start the daemon.
   -h, --help  Show this message.
@@ -34,46 +34,46 @@ done
 
 # --- 1. preflight ------------------------------------------------------------
 log "Checking prerequisites"
-"$FLUXMAX_PYTHON" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)' \
+"$DUSKCURVE_PYTHON" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)' \
     || die "python 3.12 or newer is required"
-"$FLUXMAX_PYTHON" -c 'import gi' 2>/dev/null \
+"$DUSKCURVE_PYTHON" -c 'import gi' 2>/dev/null \
     || die "the system PyGObject (python3-gi) is missing: sudo apt install python3-gi"
 
 case ":$PATH:" in
-    *":$FLUXMAX_BIN_DIR:"*) ;;
-    *) warn "$FLUXMAX_BIN_DIR is not on your PATH -- add it to ~/.profile, or the" \
-            "fluxmax-gui command and the daemon unit will not resolve." ;;
+    *":$DUSKCURVE_BIN_DIR:"*) ;;
+    *) warn "$DUSKCURVE_BIN_DIR is not on your PATH -- add it to ~/.profile, or the" \
+            "duskcurve-gui command and the daemon unit will not resolve." ;;
 esac
 
-# A second theme switcher will fight flux-max's [theme] feature: both write the
+# A second theme switcher will fight Duskcurve's [theme] feature: both write the
 # same dconf keys, and the visible result is a theme that flips back and forth.
 # Name-specific and best-effort -- detecting arbitrary third-party switchers is
 # not attempted.
-_other_switcher="$FLUXMAX_DATA_HOME/systemd/user/auto-darkmode-switcher.service"
+_other_switcher="$DUSKCURVE_DATA_HOME/systemd/user/auto-darkmode-switcher.service"
 if [ -e "$_other_switcher" ]; then
-    warn "auto-darkmode-switcher is installed and will fight flux-max's theme switching."
+    warn "auto-darkmode-switcher is installed and will fight Duskcurve's theme switching."
     warn "If you enable [theme] in config.toml, disable it first:"
     warn "  systemctl --user disable --now auto-darkmode-switcher.service auto-darkmode-switcher.timer"
 fi
 
 old_pip_install=0
-if "$FLUXMAX_PYTHON" -m pip show fluxmax >/dev/null 2>&1; then
+if "$DUSKCURVE_PYTHON" -m pip show duskcurve >/dev/null 2>&1; then
     old_pip_install=1
-    warn "an older 'pip install --user' copy of flux-max is installed and will shadow" \
-         "this one. Remove it with: $FLUXMAX_PYTHON -m pip uninstall fluxmax --break-system-packages"
+    warn "an older 'pip install --user' copy of Duskcurve is installed and will shadow" \
+         "this one. Remove it with: $DUSKCURVE_PYTHON -m pip uninstall duskcurve --break-system-packages"
 fi
 
 # Scan all console-script targets before doing any real work: creating the
 # venv and running pip install takes 20+ seconds, and none of it is needed
 # if we are just going to refuse to link over a real file at the end.
-mkdir -p "$FLUXMAX_BIN_DIR"
+mkdir -p "$DUSKCURVE_BIN_DIR"
 for script in "${CONSOLE_SCRIPTS[@]}"; do
-    target="$FLUXMAX_BIN_DIR/$script"
+    target="$DUSKCURVE_BIN_DIR/$script"
     if [ -e "$target" ] && [ ! -L "$target" ]; then
         if [ "$old_pip_install" = "1" ]; then
             die "$target is a regular file left by an older 'pip install --user' copy of" \
-                "flux-max. Remove it first:" \
-                "  $FLUXMAX_PYTHON -m pip uninstall fluxmax --break-system-packages" \
+                "Duskcurve. Remove it first:" \
+                "  $DUSKCURVE_PYTHON -m pip uninstall duskcurve --break-system-packages" \
                 "then re-run ./install.sh."
         fi
         die "$target exists and is not a symlink -- refusing to overwrite it." \
@@ -85,7 +85,7 @@ done
 # Separate package from python3-cairo, and Ubuntu's python3-gi does not pull it
 # in. Without it the curve editor -- the centrepiece of the Schedule view --
 # degrades to a status page while everything else looks fine.
-if ! "$FLUXMAX_PYTHON" -c 'import gi; gi.require_foreign("cairo")' 2>/dev/null; then
+if ! "$DUSKCURVE_PYTHON" -c 'import gi; gi.require_foreign("cairo")' 2>/dev/null; then
     log "The curve editor needs the python3-gi-cairo system package, which is missing."
     printf '    Install it now with sudo? [y/N] '
     read -r reply || reply=""
@@ -100,36 +100,36 @@ fi
 # --- 3. venv + package -------------------------------------------------------
 # A distro upgrade swaps the system python under the venv (its bin/python3 is a
 # symlink), leaving site-packages under the old lib/pythonX.Y -- rebuild it.
-_py_ver="$("$FLUXMAX_PYTHON" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
-if [ -d "$FLUXMAX_VENV" ] && [ ! -d "$FLUXMAX_VENV/lib/python$_py_ver" ]; then
+_py_ver="$("$DUSKCURVE_PYTHON" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+if [ -d "$DUSKCURVE_VENV" ] && [ ! -d "$DUSKCURVE_VENV/lib/python$_py_ver" ]; then
     log "Rebuilding the virtualenv for python $_py_ver"
-    rm -rf "$FLUXMAX_VENV"
+    rm -rf "$DUSKCURVE_VENV"
 fi
-if [ ! -x "$FLUXMAX_VENV/bin/pip" ]; then
-    "$FLUXMAX_PYTHON" -c 'import ensurepip' 2>/dev/null \
+if [ ! -x "$DUSKCURVE_VENV/bin/pip" ]; then
+    "$DUSKCURVE_PYTHON" -c 'import ensurepip' 2>/dev/null \
         || die "python venv support is missing: sudo apt install python3-venv"
-    log "Creating the virtualenv at $FLUXMAX_VENV"
-    mkdir -p "$FLUXMAX_HOME"
+    log "Creating the virtualenv at $DUSKCURVE_VENV"
+    mkdir -p "$DUSKCURVE_HOME"
     # --system-site-packages so the venv inherits the system gi and the cairo
     # bridge; neither is meaningfully pip-installable.
-    "$FLUXMAX_PYTHON" -m venv --system-site-packages "$FLUXMAX_VENV"
+    "$DUSKCURVE_PYTHON" -m venv --system-site-packages "$DUSKCURVE_VENV"
 fi
 
-log "Installing flux-max ($INSTALL_MODE)"
+log "Installing Duskcurve ($INSTALL_MODE)"
 if [ "$INSTALL_MODE" = "dev" ]; then
-    "$FLUXMAX_VENV/bin/pip" install --upgrade -e "$REPO_DIR"
+    "$DUSKCURVE_VENV/bin/pip" install --upgrade -e "$REPO_DIR"
 else
-    "$FLUXMAX_VENV/bin/pip" install --upgrade "$REPO_DIR"
+    "$DUSKCURVE_VENV/bin/pip" install --upgrade "$REPO_DIR"
 fi
 
 # --- 4. console scripts ------------------------------------------------------
 # The collision pre-scan already ran during preflight, before the venv was
 # created; only the linking remains.
-mkdir -p "$FLUXMAX_BIN_DIR"
+mkdir -p "$DUSKCURVE_BIN_DIR"
 for script in "${CONSOLE_SCRIPTS[@]}"; do
-    ln -sfn "$FLUXMAX_VENV/bin/$script" "$FLUXMAX_BIN_DIR/$script"
+    ln -sfn "$DUSKCURVE_VENV/bin/$script" "$DUSKCURVE_BIN_DIR/$script"
 done
-log "Linked ${CONSOLE_SCRIPTS[*]} into $FLUXMAX_BIN_DIR"
+log "Linked ${CONSOLE_SCRIPTS[*]} into $DUSKCURVE_BIN_DIR"
 
 # Diagnostic only -- nothing reads this back. Recorded so a user (or a bug
 # report) can tell a --dev install from a copy.
@@ -137,7 +137,7 @@ state_set install_mode "$INSTALL_MODE"
 
 # --- 5. record Night Light ---------------------------------------------------
 # Must happen before the daemon is ever started: the daemon turns Night Light
-# off as its first act, so recording afterwards would capture flux-max's own
+# off as its first act, so recording afterwards would capture Duskcurve's own
 # doing. On a re-install an existing value is kept for the same reason.
 if ! state_get night_light_was_enabled >/dev/null; then
     if current="$(gsettings get "$NIGHT_LIGHT_SCHEMA" "$NIGHT_LIGHT_KEY" 2>/dev/null)"; then
@@ -150,17 +150,17 @@ if ! state_get night_light_was_enabled >/dev/null; then
 fi
 
 # --- 6. icon + desktop file --------------------------------------------------
-mkdir -p "$FLUXMAX_ICON_DIR" "$FLUXMAX_APP_DIR"
-install -m 0644 "$REPO_DIR/data/icons/$ICON_NAME" "$FLUXMAX_ICON_DIR/$ICON_NAME"
-install -m 0644 "$REPO_DIR/data/$DESKTOP_FILE" "$FLUXMAX_APP_DIR/$DESKTOP_FILE"
+mkdir -p "$DUSKCURVE_ICON_DIR" "$DUSKCURVE_APP_DIR"
+install -m 0644 "$REPO_DIR/data/icons/$ICON_NAME" "$DUSKCURVE_ICON_DIR/$ICON_NAME"
+install -m 0644 "$REPO_DIR/data/$DESKTOP_FILE" "$DUSKCURVE_APP_DIR/$DESKTOP_FILE"
 # Both refreshers are optional: a stale cache costs an icon, not an install.
-have gtk-update-icon-cache && gtk-update-icon-cache -qtf "$FLUXMAX_ICON_THEME_DIR" || true
-have update-desktop-database && update-desktop-database -q "$FLUXMAX_APP_DIR" || true
+have gtk-update-icon-cache && gtk-update-icon-cache -qtf "$DUSKCURVE_ICON_THEME_DIR" || true
+have update-desktop-database && update-desktop-database -q "$DUSKCURVE_APP_DIR" || true
 log "Installed the icon and desktop entry"
 
 # --- 7. extension ------------------------------------------------------------
-mkdir -p "$FLUXMAX_EXT_DIR"
-ext_target="$FLUXMAX_EXT_DIR/$EXT_UUID"
+mkdir -p "$DUSKCURVE_EXT_DIR"
+ext_target="$DUSKCURVE_EXT_DIR/$EXT_UUID"
 # Replace the target only when the KIND of thing there is wrong -- a symlink
 # where we want a copied directory, or the reverse. Switching between --dev and
 # the default must not leave a copy shadowing the symlink the user asked for;
@@ -186,8 +186,8 @@ gnome-extensions enable "$EXT_UUID" || warn "could not enable the extension yet 
 log "Installed the GNOME Shell extension"
 
 # --- 8. systemd unit ---------------------------------------------------------
-mkdir -p "$FLUXMAX_UNIT_DIR"
-install -m 0644 "$REPO_DIR/data/$UNIT_NAME" "$FLUXMAX_UNIT_DIR/$UNIT_NAME"
+mkdir -p "$DUSKCURVE_UNIT_DIR"
+install -m 0644 "$REPO_DIR/data/$UNIT_NAME" "$DUSKCURVE_UNIT_DIR/$UNIT_NAME"
 systemctl --user daemon-reload || warn "systemctl daemon-reload failed; the unit may not" \
     "be picked up until you log out and back in."
 # Capture this before `enable --now`, which would make a stopped unit look as
@@ -218,15 +218,15 @@ fi
 # --- 9. next steps -----------------------------------------------------------
 cat <<EOF
 
-flux-max is installed.
+Duskcurve is installed.
 
   1. LOG OUT and back in. On Wayland, GNOME Shell cannot be restarted in
      place ('Alt+F2 r' does not work), so the extension will not load until
      you do. Until then window rules are inert by design -- the daemon still
      runs the schedule on every display.
   2. Set your location and wake/bedtime in:
-       $FLUXMAX_CONFIG_FILE
-     or launch the GUI with: fluxmax-gui
+       $DUSKCURVE_CONFIG_FILE
+     or launch the GUI with: duskcurve-gui
   3. Check on the daemon any time with:
        systemctl --user status $UNIT_NAME
 

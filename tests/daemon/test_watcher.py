@@ -3,8 +3,8 @@ import sys
 
 import pytest
 
-from fluxmax.daemon.rules import WindowState
-from fluxmax.daemon.watcher import (
+from duskcurve.daemon.rules import WindowState
+from duskcurve.daemon.watcher import (
     WATCHER_BUS_NAME,
     WATCHER_INTERFACE,
     WATCHER_OBJECT_PATH,
@@ -15,9 +15,9 @@ from fluxmax.daemon.watcher import (
 
 
 def test_contract_constants_are_frozen():
-    assert WATCHER_BUS_NAME == "org.fluxmax.WindowWatcher"
-    assert WATCHER_OBJECT_PATH == "/org/fluxmax/WindowWatcher"
-    assert WATCHER_INTERFACE == "org.fluxmax.WindowWatcher"
+    assert WATCHER_BUS_NAME == "org.duskcurve.WindowWatcher"
+    assert WATCHER_OBJECT_PATH == "/org/duskcurve/WindowWatcher"
+    assert WATCHER_INTERFACE == "org.duskcurve.WindowWatcher"
 
 
 def test_decode_empty_app_id_means_no_window():
@@ -143,24 +143,24 @@ def test_construction_does_no_dbus_work():
     w.stop()          # safe without start()
 
 
-def test_importing_fluxmax_daemon_watcher_does_not_pull_in_gi():
+def test_importing_duskcurve_daemon_watcher_does_not_pull_in_gi():
     # Subprocess (not a source-text scan) so this proves the actual runtime
-    # behavior: importing fluxmax.daemon.watcher itself -- not just
-    # fluxmax.daemon, which does not import watcher at all -- stays gi-free
+    # behavior: importing duskcurve.daemon.watcher itself -- not just
+    # duskcurve.daemon, which does not import watcher at all -- stays gi-free
     # until WindowWatcher.start() is called.
     code = (
-        "import sys; import fluxmax.daemon.watcher; "
+        "import sys; import duskcurve.daemon.watcher; "
         "assert not any(m == 'gi' or m.startswith('gi.') for m in sys.modules), "
-        "'fluxmax.daemon.watcher pulled in gi'"
+        "'duskcurve.daemon.watcher pulled in gi'"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
-def test_importing_fluxmax_daemon_does_not_pull_in_gi():
+def test_importing_duskcurve_daemon_does_not_pull_in_gi():
     code = (
-        "import sys; import fluxmax.daemon; "
+        "import sys; import duskcurve.daemon; "
         "assert not any(m == 'gi' or m.startswith('gi.') for m in sys.modules), "
-        "'fluxmax.daemon pulled in gi'"
+        "'duskcurve.daemon pulled in gi'"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
 
@@ -174,7 +174,7 @@ def test_importing_fluxmax_daemon_does_not_pull_in_gi():
 # This is the one hop where the extension and the daemon, built separately
 # from the same frozen contract, could silently disagree. The stub server
 # below exports the interface XML read verbatim out of the extension's own
-# extension/focused-window@fluxmax/dbus.js, not retyped from the plan, so a
+# extension/focused-window@duskcurve/dbus.js, not retyped from the plan, so a
 # real mismatch would actually be caught here.
 # ----------------------------------------------------------------------
 
@@ -200,7 +200,7 @@ except Exception as exc:  # pragma: no cover -- environment dependent
     _GI_IMPORT_ERROR = exc
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-_DBUS_JS = _REPO_ROOT / "extension" / "focused-window@fluxmax" / "dbus.js"
+_DBUS_JS = _REPO_ROOT / "extension" / "focused-window@duskcurve" / "dbus.js"
 
 
 def _load_iface_xml_from_extension() -> str:
@@ -268,9 +268,9 @@ def _pump_until(predicate, timeout=5.0):
 
 
 def _export_stub_producer(connection, iface_xml, get_state_seed):
-    """Export a minimal org.fluxmax.WindowWatcher object that answers GetState()
+    """Export a minimal org.duskcurve.WindowWatcher object that answers GetState()
     with `get_state_seed` and otherwise does nothing -- standing in for the
-    real extension/focused-window@fluxmax service.js."""
+    real extension/focused-window@duskcurve service.js."""
     node_info = Gio.DBusNodeInfo.new_for_xml(iface_xml)
     interface_info = node_info.interfaces[0]
 
@@ -292,7 +292,7 @@ def _export_stub_producer(connection, iface_xml, get_state_seed):
 
 
 class _ProducerThread(threading.Thread):
-    """Runs the stub org.fluxmax.WindowWatcher producer on its own thread with
+    """Runs the stub org.duskcurve.WindowWatcher producer on its own thread with
     its own private GMainContext.
 
     This mirrors reality -- the real producer (the GNOME Shell extension) is a
@@ -418,3 +418,12 @@ def test_producer_consumer_round_trip_over_live_dbus(test_bus_address):
     finally:
         watcher.stop()
         producer.stop()
+
+
+def test_extension_and_daemon_agree_on_the_bus_name():
+    js = (_REPO_ROOT / "extension/focused-window@duskcurve/dbus.js").read_text()
+    from duskcurve.daemon import watcher
+
+    assert watcher.WATCHER_BUS_NAME == "org.duskcurve.WindowWatcher"
+    assert f"'{watcher.WATCHER_BUS_NAME}'" in js
+    assert f"'{watcher.WATCHER_OBJECT_PATH}'" in js

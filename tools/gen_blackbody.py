@@ -1,4 +1,4 @@
-"""Generate fluxmax/color/blackbody_table.py from redshift's colorramp.c.
+"""Generate duskcurve/color/blackbody_table.py from redshift's colorramp.c.
 
 Provenance: redshift (GPL-3.0) src/colorramp.c `blackbody_color`, 3 floats per
 100 K from 1000 K. Run once: `python tools/gen_blackbody.py` (needs network).
@@ -23,7 +23,7 @@ def main() -> None:
     for i, (r, g, b) in enumerate(triples):
         lines.append(f"    {1000 + i * 100}: ({r!r}, {g!r}, {b!r}),")
     lines.append("}")
-    out = pathlib.Path("fluxmax/color/blackbody_table.py")
+    out = pathlib.Path("duskcurve/color/blackbody_table.py")
     out.write_text("\n".join(lines) + "\n")
     print(f"wrote {out} with {len(triples)} rows")
 

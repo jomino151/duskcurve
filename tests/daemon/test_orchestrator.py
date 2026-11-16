@@ -4,11 +4,11 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from fluxmax.backend import FakeMutterTransport, MutterBackend
-from fluxmax.color import build_ramp
-from fluxmax.daemon.config import DisplayConfig, default_config
-from fluxmax.daemon.orchestrator import NEUTRAL_KELVIN, Orchestrator
-from fluxmax.daemon.rules import Rule, WindowState
+from duskcurve.backend import FakeMutterTransport, MutterBackend
+from duskcurve.color import build_ramp
+from duskcurve.daemon.config import DisplayConfig, default_config
+from duskcurve.daemon.orchestrator import NEUTRAL_KELVIN, Orchestrator
+from duskcurve.daemon.rules import Rule, WindowState
 
 BERLIN = ZoneInfo("Europe/Berlin")
 DAY = (2026, 7, 25)
@@ -1218,7 +1218,7 @@ def test_a_failed_push_is_retried_on_the_next_tick():
 
 
 def test_the_periodic_repush_reuses_the_ramp_instead_of_rebuilding(monkeypatch):
-    import fluxmax.daemon.orchestrator as orch_mod
+    import duskcurve.daemon.orchestrator as orch_mod
 
     builds = []
     real_build = orch_mod.build_ramp

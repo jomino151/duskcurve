@@ -10,7 +10,7 @@ if [ "$1" = "-m" ] && [ "$2" = "venv" ]; then
   # A pip that logs what it was asked to install.
   printf '#!/usr/bin/env bash\necho "pip $*" >> "%s"\nexit 0\n' "$STUB_LOG" > "$target/bin/pip"
   chmod +x "$target/bin/pip"
-  for s in fluxmax-daemon fluxmax-gui fluxmax-apply; do
+  for s in duskcurve-daemon duskcurve-gui duskcurve-apply; do
     printf '#!/usr/bin/env bash\necho "%s $*" >> "%s"\nexit 0\n' "$s" "$STUB_LOG" > "$target/bin/$s"
     chmod +x "$target/bin/$s"
   done

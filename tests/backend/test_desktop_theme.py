@@ -3,14 +3,14 @@ import sys
 
 import pytest
 
-from fluxmax.backend.desktop_theme import (
+from duskcurve.backend.desktop_theme import (
     BACKGROUND_SCHEMA,
     INTERFACE_SCHEMA,
     USER_THEME_SCHEMA,
     FakeSettingsWriter,
     ThemeApplier,
 )
-from fluxmax.theme import ThemeVariant
+from duskcurve.theme import ThemeVariant
 
 FULL = ThemeVariant(
     color_scheme="prefer-dark",
@@ -145,7 +145,7 @@ def test_a_raising_wallpaper_writer_skips_only_the_wallpaper():
 def test_gio_writer_reports_a_bogus_schema_as_absent():
     gio = pytest.importorskip("gi.repository.Gio")
     assert gio is not None
-    from fluxmax.backend.desktop_theme import GioSettingsWriter
+    from duskcurve.backend.desktop_theme import GioSettingsWriter
 
     w = GioSettingsWriter()
     assert w.has_schema(INTERFACE_SCHEMA) is True
@@ -170,7 +170,7 @@ def test_gio_writer_has_key_guard_prevents_process_abort_on_missing_key():
 
     snippet = f"""
 import sys
-from fluxmax.backend.desktop_theme import GioSettingsWriter
+from duskcurve.backend.desktop_theme import GioSettingsWriter
 
 w = GioSettingsWriter()
 result = w.set_string("{INTERFACE_SCHEMA}", "no-such-key-xyz", "v")

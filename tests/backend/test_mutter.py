@@ -1,8 +1,8 @@
 import pytest
 
-from fluxmax.backend.mutter import Display, MutterBackend
-from fluxmax.backend.transport import FakeMutterTransport
-from fluxmax.color import build_ramp
+from duskcurve.backend.mutter import Display, MutterBackend
+from duskcurve.backend.transport import FakeMutterTransport
+from duskcurve.color import build_ramp
 
 
 def test_list_displays_maps_connectors_to_crtc_ids():
@@ -21,7 +21,7 @@ def test_list_displays_excludes_undriven_outputs():
 
 
 def test_unknown_connector_get_gamma_raises():
-    from fluxmax.backend.transport import MutterError
+    from duskcurve.backend.transport import MutterError
     be = MutterBackend(FakeMutterTransport())
     with pytest.raises(MutterError):
         be.get_gamma("NOPE-9")

@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 from zoneinfo import ZoneInfo
 
-from fluxmax.schedule.solar import SolarEvents, solar_events
+from duskcurve.schedule.solar import SolarEvents, solar_events
 
 BERLIN = ZoneInfo("Europe/Berlin")
 

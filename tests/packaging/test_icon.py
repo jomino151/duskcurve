@@ -5,8 +5,8 @@ import re
 import xml.etree.ElementTree as ET
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
-ICON = REPO / "data" / "icons" / "org.fluxmax.gui.svg"
-DESKTOP = REPO / "data" / "org.fluxmax.gui.desktop"
+ICON = REPO / "data" / "icons" / "org.duskcurve.gui.svg"
+DESKTOP = REPO / "data" / "org.duskcurve.gui.desktop"
 
 
 def test_icon_exists_and_is_parseable_svg():

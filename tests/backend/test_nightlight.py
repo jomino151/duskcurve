@@ -3,7 +3,7 @@ import gi
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio  # noqa: E402
 
-from fluxmax.backend.nightlight import night_light_enabled, set_night_light  # noqa: E402
+from duskcurve.backend.nightlight import night_light_enabled, set_night_light  # noqa: E402
 
 _SCHEMA = "org.gnome.settings-daemon.plugins.color"
 

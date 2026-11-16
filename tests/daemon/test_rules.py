@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-from fluxmax.daemon.rules import (
+from duskcurve.daemon.rules import (
     NO_ACTION,
     Rule,
     RuleAction,
@@ -129,9 +129,9 @@ def test_rule_matches(rule, window, expected):
 
 def test_rules_module_imports_no_gi():
     code = (
-        "import sys; import fluxmax.daemon.rules; "
+        "import sys; import duskcurve.daemon.rules; "
         "assert not any(m == 'gi' or m.startswith('gi.') for m in sys.modules), "
-        "'fluxmax.daemon.rules pulled in gi'"
+        "'duskcurve.daemon.rules pulled in gi'"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
 

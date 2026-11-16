@@ -1,4 +1,4 @@
-"""Unit tests for fluxmax.daemon.main._ConfigFileWatchState.
+"""Unit tests for duskcurve.daemon.main._ConfigFileWatchState.
 
 This is the dedup logic behind the config-file watcher wired in `_Daemon`:
 distinguishing a genuine external edit from a duplicate GFileMonitor
@@ -6,12 +6,12 @@ notification, or from the daemon's own D-Bus-triggered write (SetConfig),
 which must NOT cause a second `service.reload_config()` + a duplicate
 StatusChanged emission.
 
-`fluxmax.daemon.main` is a SYSTEM module that imports `gi` unconditionally
-(consistent with fluxmax.backend.nightlight / fluxmax.backend.gio_transport),
+`duskcurve.daemon.main` is a SYSTEM module that imports `gi` unconditionally
+(consistent with duskcurve.backend.nightlight / duskcurve.backend.gio_transport),
 so this test imports it directly rather than importorskip-ing -- same
 precedent as tests/backend/test_nightlight.py.
 """
-from fluxmax.daemon.main import _ConfigFileWatchState
+from duskcurve.daemon.main import _ConfigFileWatchState
 
 
 def test_is_new_change_true_for_first_differing_text():

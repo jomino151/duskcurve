@@ -1,8 +1,8 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from fluxmax.schedule.curve import ClockAnchor, DayContext, EventAnchor
-from fluxmax.theme import DARK, LIGHT, ThemeVariant, desired_mode
+from duskcurve.schedule.curve import ClockAnchor, DayContext, EventAnchor
+from duskcurve.theme import DARK, LIGHT, ThemeVariant, desired_mode
 
 BERLIN = ZoneInfo("Europe/Berlin")
 

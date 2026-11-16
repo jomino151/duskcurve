@@ -1,7 +1,7 @@
 [project]
-name = "fluxmax"
+name = "duskcurve"
 version = "1.0.4"
-description = "GNOME/Wayland-native f.lux-equivalent blue-light filter"
+description = "GNOME/Wayland-native blue-light filter"
 requires-python = ">=3.12"
 license = { text = "GPL-3.0-or-later" }
 
@@ -9,13 +9,13 @@ license = { text = "GPL-3.0-or-later" }
 dev = ["pytest>=8", "ruff>=0.5"]
 
 [project.scripts]
-fluxmax-apply = "fluxmax.backend.cli:main"
-fluxmax-daemon = "fluxmax.daemon.main:main"
-fluxmax-gui = "fluxmax.gui.app:main"
+duskcurve-apply = "duskcurve.backend.cli:main"
+duskcurve-daemon = "duskcurve.daemon.main:main"
+duskcurve-gui = "duskcurve.gui.app:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["fluxmax*"]
+include = ["duskcurve*"]

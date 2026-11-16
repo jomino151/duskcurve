@@ -2,7 +2,7 @@ from dataclasses import replace
 
 import pytest
 
-from fluxmax.daemon.config import (
+from duskcurve.daemon.config import (
     Config,
     ConfigError,
     DisplayConfig,
@@ -13,8 +13,8 @@ from fluxmax.daemon.config import (
     dump_config,
     load_config,
 )
-from fluxmax.daemon.rules import Rule
-from fluxmax.theme import ThemeVariant
+from duskcurve.daemon.rules import Rule
+from duskcurve.theme import ThemeVariant
 
 
 def test_default_config_values():

@@ -1,4 +1,4 @@
-from fluxmax.color.presets import PRESETS, Preset
+from duskcurve.color.presets import PRESETS, Preset
 
 
 def test_has_flux_preset_set():

@@ -12,14 +12,14 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from fluxmax.backend import FakeMutterTransport, MutterBackend
-from fluxmax.daemon.config import ThemeConfig, default_config
-from fluxmax.daemon.orchestrator import Orchestrator
-from fluxmax.theme import DARK, LIGHT, ThemeVariant
+from duskcurve.backend import FakeMutterTransport, MutterBackend
+from duskcurve.daemon.config import ThemeConfig, default_config
+from duskcurve.daemon.orchestrator import Orchestrator
+from duskcurve.theme import DARK, LIGHT, ThemeVariant
 
 BERLIN = ZoneInfo("Europe/Berlin")
 # 2026-08-16 in Berlin: sunrise ~05:59, sunset ~20:36:36 (as computed by
-# fluxmax.schedule.solar_events for this lat/lon/date -- not exactly the
+# duskcurve.schedule.solar_events for this lat/lon/date -- not exactly the
 # "20:40" round number the plan's narrative used).
 DAY = (2026, 8, 16)
 

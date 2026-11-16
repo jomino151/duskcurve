@@ -1,6 +1,6 @@
 import pytest
 
-from fluxmax.color.mired import kelvin_to_mired, lerp_kelvin, mired_to_kelvin
+from duskcurve.color.mired import kelvin_to_mired, lerp_kelvin, mired_to_kelvin
 
 
 def test_kelvin_mired_roundtrip():

@@ -3,8 +3,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from fluxmax.color import lerp_kelvin
-from fluxmax.schedule.curve import (
+from duskcurve.color import lerp_kelvin
+from duskcurve.schedule.curve import (
     ClockAnchor,
     Curve,
     DayContext,
