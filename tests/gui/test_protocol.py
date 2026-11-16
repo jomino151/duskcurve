@@ -14,7 +14,6 @@ FULL = """
     {"connector": "HDMI-1", "current_k": 2700, "enabled": false, "override": "warm_cap",
      "rule_action": {"kind": "fixed", "kelvin": 6500.0}, "manual_k": 2200}
   ],
-  "next_transition": null,
   "window": {"app_id": "org.gimp.GIMP", "fullscreen": true, "monitor_connector": "DP-2"}
 }
 """
@@ -109,7 +108,6 @@ def test_missing_optional_keys_fall_back_to_defaults():
     st = parse_status('{"per_display":[{"connector":"DP-2"}]}')
     assert st.mode == ""
     assert st.paused is False
-    assert st.next_transition is None
     assert st.window is None
     d = st.displays[0]
     assert d.current_k == 6500  # neutral

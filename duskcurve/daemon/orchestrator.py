@@ -393,7 +393,6 @@ class Orchestrator:
             "mode": self._config.mode,
             "paused": self._paused,
             "per_display": per_display,
-            "next_transition": None,
             "window": None
             if self._window is None
             else {

@@ -464,7 +464,6 @@ def test_window_states_falls_back_to_the_single_window_field():
         paused=False,
         displays=(),
         window=WindowStatus("mpv", True, "DP-2"),
-        next_transition=None,
     )
     focused, unfocused = _window_states(status)
     assert focused == WindowState("mpv", True, "DP-2")
@@ -477,7 +476,6 @@ def test_window_states_splits_focused_from_unfocused_windows():
         paused=False,
         displays=(),
         window=None,
-        next_transition=None,
         windows=(
             WindowStatus("mpv", True, "DP-2", focused=False),
             WindowStatus("Gimp", True, "HDMI-1", focused=True),

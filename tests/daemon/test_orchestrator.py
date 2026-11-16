@@ -283,7 +283,6 @@ def test_status_shape():
 
     assert status["mode"] == "reduce_eyestrain"
     assert status["paused"] is False
-    assert status["next_transition"] is None
     connectors = {d["connector"] for d in status["per_display"]}
     assert connectors == {"DP-2", "HDMI-1"}
     for d in status["per_display"]:
@@ -448,7 +447,7 @@ def test_m4_status_keys_are_unchanged():
     clock = FakeClock(_dt(23, 0))
     be, t, orch = _new(default_config(), clock)
     st = orch.status()
-    assert set(st) >= {"mode", "paused", "per_display", "next_transition"}
+    assert set(st) >= {"mode", "paused", "per_display"}
     assert set(st["per_display"][0]) >= {"connector", "current_k", "enabled", "override"}
 
 

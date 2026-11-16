@@ -82,7 +82,6 @@ class Status:
     paused: bool
     displays: tuple[DisplayStatus, ...]
     window: WindowStatus | None
-    next_transition: str | None
     theme: ThemeStatus = ThemeStatus()
     windows: tuple[WindowStatus, ...] = ()
 
@@ -176,7 +175,6 @@ def parse_status(json_text: str) -> Status:
     if isinstance(entries, list):
         displays = tuple(d for d in (_parse_display(e) for e in entries) if d is not None)
 
-    next_transition = raw.get("next_transition")
     window = _parse_window(raw.get("window"))
 
     windows_entries = raw.get("windows")
@@ -191,7 +189,6 @@ def parse_status(json_text: str) -> Status:
         paused=bool(raw.get("paused", False)),
         displays=displays,
         window=window,
-        next_transition=None if next_transition is None else str(next_transition),
         theme=ThemeStatus.from_raw(raw.get("theme")),
         windows=windows,
     )
