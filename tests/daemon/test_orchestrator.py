@@ -125,9 +125,7 @@ def test_manual_temp_connector_specific_beats_all():
 
 
 def test_set_manual_temp_rejects_non_positive_kelvin_without_poisoning_ticks():
-    # manual_transition_seconds=0.0 too: this test is about rejection not
-    # poisoning state, not about easing pace, and the clock never advances
-    # between ticks here so a non-zero manual pace would leave factor at 0.
+    # manual_transition_seconds=0.0: the clock never advances, so a non-zero pace would not ease.
     cfg = replace(default_config(), transition_seconds=0.0, manual_transition_seconds=0.0)
     clock = FakeClock(_dt(13, 0))
     be, _t, orch = _new(cfg, clock)
@@ -135,8 +133,7 @@ def test_set_manual_temp_rejects_non_positive_kelvin_without_poisoning_ticks():
     with pytest.raises(ValueError):
         orch.set_manual_temp("DP-2", 0, 10)
 
-    # Rejected call must not have stored anything: a normal tick still
-    # produces the curve value, not a ZeroDivisionError from kelvin_to_mired.
+    # The rejected call stores nothing: a normal tick still produces the curve value.
     orch.tick()
     assert be.get_gamma("DP-2") == build_ramp(4096, 6500)
 
@@ -145,7 +142,7 @@ def test_set_manual_temp_rejects_non_positive_kelvin_without_poisoning_ticks():
     orch.tick()
     assert be.get_gamma("DP-2") == build_ramp(4096, 6500)
 
-    # A valid manual temp set afterwards still works normally.
+    # A valid manual temp afterwards still works.
     orch.set_manual_temp("DP-2", 2000, 10)
     orch.tick()
     assert be.get_gamma("DP-2") == build_ramp(4096, 2000)
@@ -192,10 +189,7 @@ def test_pause_and_unpause():
 
 
 def test_easing_lands_strictly_between_old_and_target():
-    # A deliberate manual set eases at manual_transition_seconds (default
-    # 2.0s), not the schedule's transition_seconds -- see the pacing tests
-    # below. transition_seconds is set high here to prove that a slow
-    # schedule pace does NOT leak into the manual change.
+    # A manual set eases at manual_transition_seconds, not the (deliberately slow) schedule pace.
     cfg = replace(default_config(), transition_seconds=60.0)
     clock = FakeClock(_dt(13, 0))
     be, _t, orch = _new(cfg, clock)
@@ -227,9 +221,7 @@ def test_monitors_changed_re_apply_drops_missing_connector():
 
 
 def test_manual_override_does_not_survive_a_monitor_being_unplugged():
-    """A per-connector manual temp is pruned with the rest of the connector's
-    state. Otherwise it lies dormant and silently re-applies whenever a
-    monitor with the same connector name comes back -- possibly days later."""
+    """A per-connector manual temp is pruned with the connector, so it cannot reappear later."""
     cfg = replace(default_config(), transition_seconds=0.0, manual_transition_seconds=0.0)
     clock = FakeClock(_dt(13, 0))
     be, t, orch = _new(cfg, clock)
@@ -254,8 +246,7 @@ def test_manual_override_does_not_survive_a_monitor_being_unplugged():
 
 
 def test_global_manual_override_survives_a_monitor_being_unplugged():
-    """The all-displays manual key is "" -- not a real connector, so pruning
-    by connector must not evict it."""
+    """The all-displays manual key "" is not a connector, so pruning leaves it alone."""
     cfg = replace(default_config(), transition_seconds=0.0, manual_transition_seconds=0.0)
     clock = FakeClock(_dt(13, 0))
     be, t, orch = _new(cfg, clock)
@@ -389,10 +380,7 @@ def test_disabled_display_outranks_a_fixed_rule():
 
 
 def test_rule_change_is_eased_not_snapped():
-    """With rule_transition_seconds configured, a rule change goes through the
-    mired easing rather than snapping. (Rule changes are instant by DEFAULT --
-    see test_rule_change_is_instant_by_default; this pins that the eased path
-    still works when the user asks for it.)"""
+    """With rule_transition_seconds configured, a rule change eases instead of snapping."""
     cfg = replace(
         default_config(),
         rules=(Rule(action="disable", match_fullscreen=True, scope="window_monitor"),),
@@ -467,8 +455,7 @@ def _rule_cfg(**kw):
 
 
 def test_rule_change_is_instant_by_default():
-    """A rule going active jumps to its target in one tick even though the
-    schedule's own transition_seconds is 20s."""
+    """A rule going active jumps to its target in one tick despite a 20s schedule transition."""
     clock = FakeClock(_dt(23, 0))
     be, t, orch = _new(_rule_cfg(), clock)
     orch.tick()
@@ -508,26 +495,16 @@ def test_rule_transition_seconds_eases_when_configured():
     mid = orch.status()["per_display"][0]["current_k"]
     assert warm < mid < round(NEUTRAL_KELVIN)
 
-    # and it keeps easing at the rule rate on subsequent ticks, not the
-    # schedule's slower rate
+    # It keeps easing at the rule rate on later ticks.
     clock.advance(2.0)
     orch.tick()
     assert orch.status()["per_display"][0]["current_k"] > mid
 
 
 def test_instant_rule_does_not_speed_up_non_rule_changes():
-    """The instant-by-default rule path is scoped to actual rule changes. A
-    schedule-paced target change -- here a per-display override edit, which is
-    neither a rule action, a manual temp, nor a pause/enable toggle -- still
-    eases at transition_seconds and must not snap.
+    """Instant pacing applies only to rule changes: a per-display override edit still eases.
 
-    A manual temp is NOT used as the example here (as it once was): manual
-    changes now ease at their own manual_transition_seconds (2s default,
-    separate from this test's rules/schedule pacing), and at the default 2s
-    tick interval that settles within a single tick -- so it can no longer
-    demonstrate "still eases gradually". See
-    test_manual_set_converges_at_manual_pace_not_schedule_or_instant for the
-    manual-pace assertion instead.
+    A manual temp is not used here because its own pace settles within one tick.
     """
     cfg = replace(default_config(), transition_seconds=20.0, rules=())
     clock = FakeClock(_dt(23, 0))
@@ -561,7 +538,7 @@ def test_rule_transition_only_affects_the_scoped_connector():
 
 
 # ---------------------------------------------------------------------------
-# Indefinite manual temps and manual_k in status (Task M6.1)
+# Indefinite manual temps and manual_k in status
 # ---------------------------------------------------------------------------
 
 
@@ -644,13 +621,11 @@ def test_status_keeps_every_pre_m6_key():
 
 
 # ---------------------------------------------------------------------------
-# Cause-based pacing (M6 hardware-pass fix): schedule / manual / toggle / rule
+# Cause-based pacing: schedule / manual / toggle / rule
 # ---------------------------------------------------------------------------
 #
-# transition_seconds=20 (schedule) and manual_transition_seconds=3 (manual;
-# set explicitly here, above the 2.0 default) are kept far apart so a wrong pacing
-# category produces an unmistakably wrong amount of movement, not just a
-# slightly-off number.
+# transition_seconds=20 and manual_transition_seconds=3 are far apart so a wrong
+# pacing category moves the display by an unmistakably wrong amount.
 
 
 def _k(orch, connector="DP-2") -> float:
@@ -732,10 +707,7 @@ def test_reenabling_a_display_is_instant():
 
 
 def test_reenabling_mid_transition_rejoins_the_sibling_not_the_endpoint():
-    """Disabling a display mid-transition and re-enabling it must put it back
-    where its still-transitioning siblings are, not at the transition's
-    endpoint. Otherwise the two displays sit at different temperatures for the
-    rest of the transition."""
+    """Re-enabling mid-transition puts a display level with its siblings, not at the endpoint."""
     cfg = replace(default_config(), transition_seconds=60.0)
     clock = FakeClock(_dt(13, 0))  # noon: both connectors settle at 6500
     be, _t, orch = _new(cfg, clock)
@@ -789,10 +761,10 @@ def test_reenabling_mid_transition_rejoins_the_sibling_not_the_endpoint():
 
 
 def test_backwards_clock_step_mid_transition_holds_instead_of_diverging():
-    """A wall-clock step backwards (NTP correction, resume from suspend) gives
-    a negative dt. Easing by a negative factor moves *away* from the target and
-    straight through mired's singularity at 0, producing negative Kelvin and a
-    garbage ramp. A tick that goes backwards in time must simply hold."""
+    """A backwards clock step (NTP, resume) gives a negative dt; the tick must hold.
+
+    A negative easing factor would pass through mired's singularity at 0 (negative Kelvin).
+    """
     cfg = replace(default_config(), transition_seconds=20.0)
     clock = FakeClock(_dt(13, 0))
     be, _t, orch = _new(cfg, clock)
@@ -836,8 +808,7 @@ def test_status_reports_no_expiry_when_no_manual_override_is_active():
 
 
 def test_status_reports_no_expiry_for_an_until_cleared_manual_override():
-    """duration_min <= 0 means "until explicitly cleared": there is a manual
-    override but no expiry, and the two states must stay distinguishable."""
+    """duration_min <= 0 means "until cleared": an override is reported with no expiry."""
     cfg = replace(default_config(), transition_seconds=0.0)
     clock = FakeClock(_dt(13, 0))
     _be, _t, orch = _new(cfg, clock)
@@ -879,8 +850,7 @@ def test_status_drops_the_expiry_once_the_manual_override_has_expired():
 
 
 def test_a_global_manual_override_reports_its_expiry_on_every_display():
-    """Connector "" applies to all displays, so each of them must report the
-    same countdown rather than only the connector the call named."""
+    """Connector "" applies to all displays, so each reports the same countdown."""
     cfg = replace(default_config(), transition_seconds=0.0)
     clock = FakeClock(_dt(13, 0))
     _be, _t, orch = _new(cfg, clock)
@@ -939,9 +909,7 @@ def test_clear_manual_temp_returns_to_curve_at_manual_pace():
 
 
 def test_manual_temp_expiry_drifts_back_at_schedule_pace_not_manual_pace():
-    """The subtle distinction: a deliberate clear_manual_temp eases at manual
-    pace (see above), but a manual temp expiring on its own is not a
-    deliberate action and must ease back at the slower schedule pace."""
+    """A manual temp expiring on its own eases back at schedule pace, unlike an explicit clear."""
     cfg = replace(default_config(), transition_seconds=20.0, manual_transition_seconds=3.0)
     clock = FakeClock(_dt(13, 0))
     be, _t, orch = _new(cfg, clock)
@@ -989,11 +957,8 @@ def test_pacing_persists_across_ticks_until_convergence_then_resets_to_schedule(
     orch.tick()
     assert _k(orch) == 2000  # unchanged: target hasn't moved
 
-    # Pacing has reset to "schedule" (it reset back at the convergence tick
-    # above). Now the manual temp expires on its own -- not a deliberate
-    # action -- so the drift back to the curve eases at the slow schedule
-    # rate, not the fast manual rate, even though "manual" was this
-    # connector's most recent active category.
+    # Pacing reset to "schedule" at the convergence tick above, so the expiry drift
+    # eases at the slow schedule rate even though "manual" was the last active category.
     clock.advance(3)  # 61s elapsed: expired. dt for this tick is only 3s.
     orch.tick()
     third = _k(orch)
@@ -1001,7 +966,7 @@ def test_pacing_persists_across_ticks_until_convergence_then_resets_to_schedule(
 
 
 # ---------------------------------------------------------------------------
-# M9: unfocused fullscreen windows (set_window_state's unfocused=, status()["windows"])
+# Unfocused fullscreen windows (set_window_state's unfocused=, status()["windows"])
 # ---------------------------------------------------------------------------
 
 
@@ -1064,11 +1029,8 @@ def test_set_window_state_defaults_unfocused_to_empty():
 
 
 def test_status_rule_action_reflects_an_unfocused_window_without_ticking():
-    # status() runs its OWN resolve_rules, separate from tick()'s. If it were
-    # to lose the unfocused windows, every temperature would still be right
-    # (tick computed those) while the GUI's per-display rule badge silently
-    # reported "none" -- the Displays tab would show an untinted monitor with
-    # no explanation of why.
+    # status() runs its own resolve_rules, separate from tick()'s; it must see
+    # unfocused windows too or the per-display rule badge would report "none".
     cfg = replace(
         default_config(),
         rules=(
@@ -1090,11 +1052,8 @@ def test_status_rule_action_reflects_an_unfocused_window_without_ticking():
 
 
 def test_an_unfocused_rule_engages_at_rule_pace_not_schedule_pace():
-    # The M5 lesson, re-checked for the new source: a rule reacting to a
-    # deliberate user action must not inherit the schedule's slow drift. With
-    # a 20 s schedule constant and the default 0 s rule constant, one tick
-    # must land the display fully on its target -- the same guarantee a
-    # focused-window rule already has.
+    # A rule must not inherit the schedule's slow drift: with a 20 s schedule
+    # constant and the default 0 s rule constant, one tick lands on target.
     cfg = replace(
         default_config(),
         rules=(
@@ -1124,9 +1083,8 @@ def test_an_unfocused_rule_engages_at_rule_pace_not_schedule_pace():
 
 
 def test_steady_state_ticks_do_not_repush_an_unchanged_ramp():
-    # At noon the curve is flat: after the first push, a tick that would send
-    # the exact same ramp must not call SetCrtcGamma at all. Every redundant
-    # push costs gnome-shell a KMS gamma commit.
+    # At noon the curve is flat: an identical ramp must not call SetCrtcGamma again,
+    # since each push costs gnome-shell a KMS gamma commit.
     clock = FakeClock(_dt(13, 0))
     _be, t, orch = _new(default_config(), clock)
     orch.tick()
@@ -1138,9 +1096,8 @@ def test_steady_state_ticks_do_not_repush_an_unchanged_ramp():
 
 
 def test_unchanged_ramp_is_repushed_every_60_seconds():
-    # Self-healing: something outside the daemon (resume, VT switch, Night
-    # Light) can reset gamma, so an unchanged ramp is still re-sent once a
-    # minute.
+    # Something outside the daemon (resume, VT switch, Night Light) can reset gamma,
+    # so an unchanged ramp is still re-sent once a minute.
     clock = FakeClock(_dt(13, 0))
     _be, t, orch = _new(default_config(), clock)
     orch.tick()

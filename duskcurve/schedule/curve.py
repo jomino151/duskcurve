@@ -1,7 +1,6 @@
-"""Keypoint-based colour-temperature curve engine.
+"""Keypoint-based colour-temperature curve, interpolated in mired space.
 
-Pure stdlib (dataclasses/datetime) + duskcurve.color — no gi/D-Bus/GTK.
-All interpolation goes through duskcurve.color.lerp_kelvin (mired-space).
+Depends only on the standard library and duskcurve.color.
 """
 
 from collections.abc import Sequence
@@ -21,7 +20,7 @@ class ClockAnchor:
 
 @dataclass(frozen=True)
 class EventAnchor:
-    event: str  # one of {"sunrise","sunset","wake","bedtime"}
+    event: str  # "sunrise" | "sunset" | "wake" | "bedtime"
     offset_min: int = 0
 
 
@@ -56,18 +55,17 @@ def _resolve_anchor(anchor: Anchor, ctx: DayContext) -> float:
 
 
 def anchor_minutes(anchor: Anchor, ctx: DayContext) -> float:
-    """Public: resolve an anchor to minutes past local midnight, mod 1440."""
+    """Resolve an anchor to minutes past local midnight, mod 1440."""
     return _resolve_anchor(anchor, ctx)
 
 
 def walk_minutes(keypoints: Sequence[Keypoint], ctx: DayContext) -> list[float]:
     """Resolve keypoints to a monotonic non-decreasing walk around the day.
 
-    The keypoint list is an ordered walk, not a sortable set: event anchors
-    move seasonally and can invert relative to each other. Each keypoint's
-    resolved time is pushed forward by whole days until it is at or after the
-    running time, and any residual backward inversion is clamped to the
-    running time (a zero-length segment), never reordered.
+    Keypoints are an ordered walk, not a sortable set: event anchors move
+    seasonally and can invert. Each time is pushed forward by whole days to
+    the first keypoint's time, then clamped up to the running time (a
+    zero-length segment) rather than reordered.
     """
     if not keypoints:
         return []

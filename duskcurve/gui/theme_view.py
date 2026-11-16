@@ -1,39 +1,13 @@
-"""The Theme page -- automatic light/dark desktop switching plus a manual override.
+"""The Theme page: automatic light/dark desktop switching plus a manual override.
 
-Three `Adw.PreferencesGroup`s below a header row of Light/Dark/Auto toggle
-buttons: "Automatic switching" (enable flag, and an anchor + offset pair for
-each of light/dark, with a "Custom time" option that swaps the offset row for
-an `HH:MM` entry row); "Light" and "Dark" (the two `ThemeVariant` tables --
-color scheme, GTK/icon/cursor/shell theme pickers, and a wallpaper chooser).
-This module is gi-dependent (unlike the pure `themes`/`protocol` modules it
-calls into) and is imported only by widget code, never by `duskcurve.gui.__init__`
-or a pure module.
+`_rendering` is set for the whole of `_render()` and every handler returns early when it is set;
+focused offset spin rows and custom-time entries are not rewritten while being edited.
 
-Both guards from M6 recur here, matching `prefs.py` and `schedule_view.py`:
+`Adw.EntryRow::apply` fires only when `show-apply-button` is True, and not on focus-out, so the
+custom-time rows set it and also commit on focus-leave.
 
-- **Gesture guard**: while a spin row or entry row is focused/being edited,
-  `_render()` skips pushing a fresh value into that specific widget --
-  otherwise the periodic status poll (driven by `AppState` subscribers) would
-  fight the user's in-progress interaction. `Adw.ComboRow` selections and the
-  header toggle buttons are treated as atomic (no focus-editing window), so
-  only the offset `Adw.SpinRow`s and the custom-time `Adw.EntryRow`s carry
-  the extra editing flag.
-- **Re-entrancy guard**: `_render()` sets `self._rendering = True` for the
-  whole of its body (via try/finally), and every widget's own handler checks
-  that flag first and returns immediately if it is set.
-
-`Adw.EntryRow::apply` only fires when `show-apply-button` is `True` (verified
-live against libadwaita 1.5.0; the M6 bug that made the Preferences timezone
-field unsettable). Both custom-time entry rows set it, and their focus-leave
-handler also commits explicitly, since `::apply` does not fire on a plain
-focus-out either.
-
-A `ThemeVariant`'s `gtk_theme`/`icon_theme`/`cursor_theme`/`shell_theme` may
-name a theme this machine's scan (`duskcurve.gui.themes`) does not currently
-find -- e.g. set by hand-editing config.toml, or a theme since removed. Rather
-than silently show "Leave alone" for a config value that is not actually
-empty, `_ensure_option` appends the unknown value to that row's option list on
-render so it stays visible and selected.
+A configured theme name missing from the local scan (hand-edited, or since removed) is appended
+to the row's options by `_ensure_option`, so it stays visible instead of reading "Leave alone".
 """
 
 import dataclasses
@@ -64,7 +38,6 @@ _DEFAULT_CUSTOM_DARK = "19:00"
 _COLOR_SCHEME_LABELS = ["Leave alone", "default", "prefer-light", "prefer-dark"]
 _COLOR_SCHEME_VALUES = ["", "default", "prefer-light", "prefer-dark"]
 
-# duskcurve.daemon.config._validate_anchor / _HHMM_RE: "HH:MM", 00-23:00-59.
 _OFFSET_MIN = -720.0
 _OFFSET_MAX = 720.0
 
@@ -92,8 +65,7 @@ def _anchor_index(anchor: str) -> int:
 def _ensure_option(labels: list[str], values: list[str], value: str) -> None:
     """Append `value` (with itself as the label) if it is not already an option.
 
-    See module docstring: keeps an unscanned/hand-edited theme name visible
-    and selectable instead of silently collapsing to "Leave alone".
+    Keeps an unscanned or hand-edited theme name visible and selected.
     """
     if value not in values:
         values.append(value)
@@ -106,10 +78,7 @@ class ThemeView(Gtk.Box):
         self._state = state
         self._client = client
 
-        # Re-entrancy guard: True only while _render() is pushing values into
-        # widgets. Every outbound handler below checks this first.
         self._rendering = False
-        # Gesture guard state.
         self._light_offset_editing = False
         self._dark_offset_editing = False
         self._light_custom_editing = False
@@ -218,8 +187,7 @@ class ThemeView(Gtk.Box):
         offset_row.add_controller(offset_focus)
         group.add(offset_row)
 
-        # Adw.EntryRow::apply only fires with show-apply-button set -- see
-        # module docstring.
+        # Adw.EntryRow::apply fires only with show-apply-button set.
         custom_row = Adw.EntryRow(title="Custom time (HH:MM)")
         custom_row.set_show_apply_button(True)
         custom_row.connect("apply", on_custom_apply)

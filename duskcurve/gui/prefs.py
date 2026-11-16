@@ -1,35 +1,11 @@
-"""The Preferences dialog -- settings configured once rather than touched daily.
+"""The Preferences dialog: Location, Temperature and Timing settings.
 
-Three `Adw.PreferencesGroup`s on a single `Adw.PreferencesPage`: Location,
-Temperature, and Timing. This module is gi-dependent (unlike the pure
-`state`/`editing`/`protocol`/`geometry` modules it calls into) and is
-imported only by widget code, never by `duskcurve.gui.__init__` or a pure
-module.
+`_rendering` is set while store values are pushed into widgets and held for whole handler
+bodies (`AppState.set_error()` re-enters `_render()`). Focused spin rows and entries are not
+rewritten, so the status poll does not fight an edit.
 
-The two guards recur here, matching `display_panel.py` and `schedule_view.py`:
-
-- **Gesture guard**: while a spin row or entry is focused/being edited,
-  `_render()` skips pushing a fresh value into that specific widget --
-  otherwise the periodic status poll (driven by `AppState` subscribers)
-  would fight the user's in-progress interaction.
-- **Re-entrancy guard**: `_render()` sets `self._rendering = True` for the
-  duration of pushing store values into every widget, and every widget's
-  own `notify`/`apply` handler checks that flag first and returns
-  immediately if it is set. Since `_render()` itself never calls
-  `AppState.apply_config`, and the guarded handlers are the *only* places
-  that do, a programmatic push can never be mistaken for a user edit and
-  loop back into another outbound call. `AppState.set_error()` notifies
-  subscribers too, so a failing `apply_config` inside a handler re-enters
-  `_render()` -- the flag is set for the whole handler body (via
-  try/finally) precisely so that path is also covered.
-
-min_kelvin/max_kelvin are a coupled pair (the daemon's `_validate_range`
-requires `min_kelvin < max_kelvin`). Rather than let the user submit an
-invalid pair and bounce off a rejected `apply_config`, each row's
-adjustment bounds are re-shaped on every render so it is impossible to
-drag one past the other: the min row's upper bound tracks the live
-max_kelvin value (minus a small margin) and the max row's lower bound
-tracks the live min_kelvin value (plus the same margin).
+min_kelvin and max_kelvin must satisfy `min < max`, so each render reshapes the adjustment
+bounds to make an invalid pair impossible to enter.
 """
 
 import dataclasses
@@ -49,21 +25,15 @@ from duskcurve.gui.state import AppState  # noqa: E402
 
 log = logging.getLogger("duskcurve.gui.prefs")
 
-# Keep at least this much daylight between min_kelvin and max_kelvin so the
-# pair can never be dragged into the invalid min < max boundary case even
-# with rounding -- matches the strict inequality in
-# duskcurve.daemon.config._validate_range.
+# Gap kept between min_kelvin and max_kelvin; the daemon's _validate_range is strict.
 _KELVIN_MARGIN = 1.0
 
 # duskcurve.daemon.config._validate_range: 0 < min_kelvin < 100000, 0 < max_kelvin < 100000.
 _KELVIN_FLOOR = 1.0
 _KELVIN_CEIL = 99999.0
 
-# duskcurve.daemon.config._validate_transition: seconds >= 0, rule_seconds >= 0,
-# manual_seconds >= 0.
-# duskcurve.daemon.config._validate_tick: interval_seconds > 0.
-# No daemon-side upper bound on any of the four; cap the widgets generously
-# so the UI stays usable rather than to satisfy a validator.
+# Daemon validators require transition seconds >= 0 and tick interval > 0, with no upper
+# bound; the caps below only keep the widgets usable.
 _TRANSITION_MAX = 3600.0
 _TICK_MIN = 0.1
 _TICK_MAX = 3600.0
@@ -76,11 +46,8 @@ class PreferencesDialog(Adw.PreferencesDialog):
         super().__init__()
         self._state = state
 
-        # Re-entrancy guard: True only while _render() is pushing values into
-        # widgets. Every outbound handler below checks this first.
         self._rendering = False
-        # Gesture guard state: True while the corresponding widget has focus
-        # and the user may be mid-edit.
+        # True while the matching widget has focus.
         self._latitude_editing = False
         self._longitude_editing = False
         self._min_kelvin_editing = False
@@ -117,12 +84,8 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self._longitude_row.add_controller(lon_focus)
         location_group.add(self._longitude_row)
 
-        # A searchable dropdown makes an invalid timezone unrepresentable --
-        # no validation branch or error path needed, unlike the freeform
-        # Adw.EntryRow this replaces. Adw.ComboRow (unlike Gtk.DropDown) was
-        # verified live against this libadwaita 1.5.0 install to expose an
-        # `enable-search` property directly, so it's used here rather than
-        # wrapping a Gtk.DropDown in an Adw.ActionRow.
+        # A searchable dropdown makes an invalid timezone unrepresentable. Adw.ComboRow
+        # exposes `enable-search` directly, unlike Gtk.DropDown.
         timezone_model = Gtk.StringList.new(_TIMEZONES)
         self._timezone_row = Adw.ComboRow(title="Timezone", model=timezone_model)
         self._timezone_row.set_enable_search(True)
@@ -217,12 +180,8 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self._tick_row.add_controller(tick_focus)
         timing_group.add(self._tick_row)
 
-        # The window builds a fresh dialog on every Preferences activation, so
-        # a dropped unsubscribe handle would leak one permanent subscriber per
-        # open -- each of them re-rendering a destroyed dialog on every status
-        # poll forever, silently, because AppState._notify swallows subscriber
-        # exceptions. Adw.Dialog::closed (verified against libadwaita 1.5.0)
-        # is the teardown hook.
+        # A fresh dialog is built per activation, so unsubscribe on ::closed or each open
+        # leaks a subscriber that re-renders a destroyed dialog on every poll.
         self._unsubscribe: Callable[[], None] | None = self._state.subscribe(self._render)
         self.connect("closed", self._on_closed)
         self._render()
@@ -253,8 +212,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
                 tz_index = Gtk.INVALID_LIST_POSITION
             self._timezone_row.set_selected(tz_index)
 
-            # Reshape the min/max adjustments so neither row can be dragged
-            # past the other -- see module docstring.
+            # Reshape so neither row can be dragged past the other.
             min_adjustment = self._min_kelvin_row.get_adjustment()
             min_adjustment.set_upper(max(_KELVIN_FLOOR, cfg.max_kelvin - _KELVIN_MARGIN))
             max_adjustment = self._max_kelvin_row.get_adjustment()

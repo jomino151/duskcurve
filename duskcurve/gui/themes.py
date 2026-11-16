@@ -1,8 +1,7 @@
 """Enumerate installed GTK and GNOME Shell themes.
 
-PURE (stdlib only, no gi) so the scanning logic is testable against a tmp_path.
-A GTK theme is any directory; a shell theme is one containing a `gnome-shell`
-subdirectory, which is what the User Themes extension actually loads.
+Stdlib only. A GTK theme is any directory; a shell theme is one containing a `gnome-shell`
+subdirectory, which is what the User Themes extension loads.
 """
 
 import os

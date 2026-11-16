@@ -26,8 +26,7 @@ def test_restores_night_light_when_it_was_on(sandbox):
 
 
 def test_restores_night_light_when_it_was_off(sandbox):
-    """Both directions, deliberately: a test that only checks one passes
-    against a script that hardcodes the answer."""
+    """Checks both directions, so a script that hardcodes the answer fails."""
     sandbox.set_gsettings(*NIGHT_LIGHT.split(), "false")
     sandbox.run("install.sh")
     sandbox.set_gsettings(*NIGHT_LIGHT.split(), "true")
@@ -131,8 +130,7 @@ def test_closing_message_mentions_the_logout(sandbox):
 
 
 def test_completes_when_gsettings_set_fails(sandbox):
-    """Regression guard for Critical 1: a failing Night Light restore must not
-    leave the extension, symlinks or venv behind un-recoverably."""
+    """A failing Night Light restore must not leave the extension, symlinks or venv behind."""
     sandbox.run("install.sh")
     sandbox.env["STUB_GSETTINGS_SET_FAIL"] = "1"
     proc = sandbox.run("uninstall.sh")

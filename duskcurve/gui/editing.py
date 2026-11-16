@@ -1,8 +1,6 @@
-"""Pure config mutation for the GUI.
+"""Config mutation for the GUI.
 
-PURE module: no gi. Every edit the user makes is expressed here as a
-function from an old Config to a new one, so the widgets never mutate
-anything and every rule is unit-tested.
+No gi. Each edit is a function from an old Config to a new one; widgets never mutate config.
 """
 
 import dataclasses
@@ -81,13 +79,10 @@ def with_keypoints(cfg: Config, kps: Sequence[KeypointConfig]) -> Config:
 
 
 def fork_to_custom(cfg: Config) -> Config:
-    """Switch to custom mode, restoring a previously parked fork if there is one.
+    """Switch to custom mode, restoring a parked fork if there is one.
 
-    A non-empty `custom_keypoints` while a built-in mode is selected is the
-    user's own curve, parked but not discarded (design spec 6.4). Selecting
-    Custom again must bring *that* back, not overwrite it with the built-in
-    mode's curve. Only when there is nothing parked do we copy the curve
-    currently in force.
+    A non-empty `custom_keypoints` under a built-in mode is the user's own curve, parked.
+    Selecting Custom again restores it; only when nothing is parked is the curve in force copied.
     """
     if cfg.custom_keypoints:
         return with_keypoints(cfg, cfg.custom_keypoints)
@@ -129,9 +124,8 @@ def shift_keypoint_time(
 ) -> tuple[KeypointConfig, ...]:
     """Move a keypoint in time.
 
-    An event-anchored keypoint keeps its anchor and moves its offset, so it
-    goes on tracking sunset (etc.) seasonally. Only an explicit anchor change
-    converts between anchor kinds -- never a drag.
+    An event-anchored keypoint keeps its anchor and moves its offset, so it keeps tracking
+    the event seasonally.
     """
     _check_index(kps, index)
     out = list(kps)
@@ -163,9 +157,7 @@ def insert_keypoint(
 ) -> tuple[KeypointConfig, ...]:
     """Insert a clock-anchored keypoint AT index.
 
-    The index comes from which drawn segment the user clicked (see
-    duskcurve.gui.geometry.insert_index) -- never from sorting, which would
-    interleave keypoints from different phases of the day.
+    The index comes from the clicked segment (`geometry.insert_index`), not from sorting.
     """
     out = list(kps)
     out.insert(index, KeypointConfig(_minutes_to_hhmm(minutes), float(kelvin), 0, "smoothstep"))

@@ -1,8 +1,6 @@
-"""Tick engine: ties config, curve, overrides, and the display backend together.
+"""Tick engine: ties config, curve, overrides, rules and the display backend together.
 
-PURE core: stdlib (`datetime`, `zoneinfo`) + duskcurve.color / duskcurve.backend /
-duskcurve.schedule / duskcurve.daemon.config / duskcurve.daemon.overrides. No
-gi/D-Bus/GLib import in this module.
+No gi, D-Bus or GLib imports, so it runs against a fake backend and a fake clock.
 """
 
 import logging
@@ -30,18 +28,14 @@ log = logging.getLogger("duskcurve.daemon")
 
 NEUTRAL_KELVIN = 6500.0
 
-# Kelvin gap below which a display counts as having reached its target,
-# ending a non-schedule-paced transition and resetting pacing back to
-# "schedule". Well under a perceptible step at any temperature.
+# Kelvin gap below which a display has reached its target and pacing resets to "schedule".
 _CONVERGED_KELVIN = 1.0
 
-# A ramp is only re-sent when its temperature moved by at least this much
-# since the last push (well under a perceptible step), or when REPUSH_AFTER
-# has passed. Every SetCrtcGamma costs gnome-shell a KMS gamma commit, so
-# re-sending an identical ramp every tick is the daemon's main idle cost.
+# A ramp is re-sent only when its temperature moved this much or REPUSH_AFTER has
+# passed: every SetCrtcGamma costs gnome-shell a KMS gamma commit.
 _PUSH_KELVIN = 0.5
-# Unchanged ramps are still re-sent this often, to self-heal a gamma table
-# reset behind the daemon's back (resume, VT switch, another tool).
+# Unchanged ramps are still re-sent this often, to recover from a gamma table reset
+# behind our back (resume, VT switch, another tool).
 REPUSH_AFTER = timedelta(seconds=60)
 
 _EVENT_ANCHORS = frozenset({"sunrise", "sunset", "wake", "bedtime"})
@@ -79,55 +73,30 @@ class Orchestrator:
         self._window: WindowState | None = None
         self._unfocused: tuple[WindowState, ...] = ()
         self._prev_actions: dict[str, RuleAction] = {}
-        # Desktop theme. `_theme_mode` is the mode this daemon last APPLIED, not
-        # the mode that is desired: None means "nothing applied yet", which is
-        # what makes the first tick unconditional (and therefore what makes a
-        # daemon started at 23:00 correct at 23:00:02 instead of at sunrise).
+        # Desktop theme. `_theme_mode` is the mode last applied, not the desired one;
+        # None (nothing applied yet) makes the first tick apply unconditionally.
         self._theme_applier = theme_applier
         self._theme_mode: str | None = None
         self._theme_manual: tuple[str, datetime | None] | None = None
-        # Every temperature change eases toward its target, but the pace
-        # depends on WHAT caused the change, not just that it changed:
-        # "schedule" (curve drift, the default/fallback), "manual" (a
-        # deliberate temp set/clear), "toggle" (pause/unpause -- hardcoded
-        # instant; display enable/disable needs no entry at all, see
-        # set_config), or "rule" (a window rule engaging or releasing).
-        # Set when the cause happens, cleared back to "schedule"
-        # once the display converges on its target, so a multi-tick
-        # transition keeps its own rate the whole way instead of reverting to
-        # the schedule's rate after the first tick.
+        # Easing pace per connector, by what caused the change: "schedule" (curve
+        # drift, the default), "manual" (temp set/clear), "toggle" (pause/unpause,
+        # instant) or "rule" (a window rule engaging or releasing). Reset to
+        # "schedule" on convergence, so a multi-tick transition keeps its rate.
         self._pacing: dict[str, str] = {}
         # connector -> (kelvin, ramp, pushed_at) of the last SUCCESSFUL push.
         self._pushed: dict[str, tuple[float, tuple[list[int], list[int], list[int]], datetime]] = {}
 
     def set_config(self, config: Config) -> None:
-        # Note: a display's enabled flag needs no pacing entry. `enabled` is an
-        # output mask applied after easing (see tick), not a temperature
-        # target, so both directions are already instant and the display's
-        # eased position keeps tracking the schedule while it is off.
+        # `enabled` needs no pacing entry: it masks the output after easing.
         if config.theme != self._config.theme:
-            # Clearing the applied-mode memory makes the next tick re-apply. Without
-            # it, editing the dark variant while already dark would silently do
-            # nothing until the next sunrise.
-            #
-            # Deliberately whole-section, not per-variant: editing the LIGHT
-            # variant while DARK is active still clears _theme_mode and re-applies
-            # dark on the next tick, overwriting a theme the user may have
-            # hand-picked in between. Narrowing this to "only clear if the ACTIVE
-            # variant changed" would dodge that, but the README already advertises
-            # "any [theme] edit re-applies immediately" and a narrower rule is a
-            # bigger surprise: a user watching the GUI expects a Save to take
-            # effect now, not "maybe, depending on which variant is active
-            # tonight". See finding 6 -- do not change this behaviour.
+            # Forget the applied mode so the next tick re-applies: any [theme]
+            # edit takes effect immediately.
             self._theme_mode = None
         self._config = config
         self._curve = self._build_curve(config)
 
     def set_paused(self, paused: bool) -> None:
-        # Pausing/unpausing is a binary on/off action, not a temperature
-        # target -- there is no useful in-between rate, so it is hardcoded to
-        # instant ("toggle" pacing, 0 seconds) rather than exposed as a config
-        # knob. Do not "fix" this into a configurable duration.
+        # Pause is on/off, so it is always instant ("toggle" pacing).
         if paused != self._paused:
             self._mark_pacing_all("toggle")
         self._paused = paused
@@ -135,29 +104,22 @@ class Orchestrator:
     def set_manual_temp(self, connector: str, kelvin: int, duration_min: int) -> None:
         if kelvin <= 0:
             raise ValueError(f"kelvin must be positive, got {kelvin}")
-        # duration_min <= 0 means "until explicitly cleared": store no expiry at
-        # all. Previously this computed an expiry of `now`, which expired on the
-        # very next read and made the call a no-op.
+        # duration_min <= 0 means "until cleared": no expiry.
         expiry = None if duration_min <= 0 else self._clock() + timedelta(minutes=duration_min)
         self._manual[connector] = (float(kelvin), expiry)
-        # A deliberate manual set eases at manual_transition_seconds -- quicker
-        # than the schedule's drift, but not instant. This must NOT be
-        # confused with a manual temp expiring on its own inside
-        # _manual_kelvin, which is not a deliberate action and stays at
-        # schedule pacing (nothing marks it here).
+        # A manual set eases at manual_transition_seconds. A manual temp expiring on
+        # its own (in _manual_kelvin) is not marked and stays at schedule pacing.
         self._mark_pacing(connector, "manual")
 
     def clear_manual_temp(self, connector: str) -> None:
         self._manual.pop(connector, None)
-        # Explicitly clearing (e.g. pressing Resume) is just as deliberate as
-        # setting one, so it gets the same manual pacing back to the curve.
+        # Clearing eases back to the curve at manual pace too.
         self._mark_pacing(connector, "manual")
 
     def set_theme(self, mode: str, duration_min: int) -> None:
         if mode not in (LIGHT, DARK):
             raise ValueError(f"theme mode must be {LIGHT!r} or {DARK!r}, got {mode!r}")
-        # duration_min <= 0 means "until explicitly cleared": store no expiry at
-        # all, the same convention (and the same past bug) as set_manual_temp.
+        # duration_min <= 0 means "until cleared": no expiry.
         expiry = None if duration_min <= 0 else self._clock() + timedelta(minutes=duration_min)
         self._theme_manual = (mode, expiry)
 
@@ -177,14 +139,12 @@ class Orchestrator:
     def set_window_state(
         self, window: WindowState | None, unfocused: Sequence[WindowState] = ()
     ) -> None:
-        """Store the focused/fullscreen window state, plus any unfocused fullscreen
-        windows elsewhere on the desktop. Does not tick; the caller must."""
+        """Store the focused window and any unfocused fullscreen windows. Does not tick."""
         self._window = window
         self._unfocused = tuple(unfocused)
 
     def on_monitors_changed(self) -> None:
-        # A hotplug or mode change can reset a CRTC's gamma table (and change
-        # its ramp size), so the next tick must re-send everything.
+        # A hotplug or mode change can reset a CRTC's gamma and ramp size: re-send all.
         self._pushed.clear()
         connectors = {d.connector for d in self._backend.list_displays()}
         for connector in list(self._current_k):
@@ -192,9 +152,8 @@ class Orchestrator:
                 del self._current_k[connector]
         for state in (self._prev_actions, self._pacing, self._manual):
             for connector in list(state):
-                # "" is the all-displays manual key, not a real connector, so
-                # it must survive; a per-connector override must not, or it
-                # silently re-applies when a monitor of that name comes back.
+                # "" is the all-displays manual key and must survive; a stale
+                # per-connector entry must not re-apply if that monitor returns.
                 if connector != "" and connector not in connectors:
                     del state[connector]
 
@@ -217,8 +176,7 @@ class Orchestrator:
             connector = display.connector
             target_k = self._raw_target(connector, now, ctx, actions)
 
-            # A change in the resolved action -- in either direction, rule
-            # engaging or releasing -- starts a rule-paced transition.
+            # A rule engaging or releasing starts a rule-paced transition.
             action = actions.get(connector, NO_ACTION)
             if action != self._prev_actions.get(connector, NO_ACTION):
                 self._pacing[connector] = "rule"
@@ -231,12 +189,8 @@ class Orchestrator:
                 "rule": self._config.rule_transition_seconds,
                 "toggle": 0.0,
             }[category]
-            # Clamped at both ends. The upper end caps a long tick at "arrive".
-            # The lower end matters when the wall clock steps BACKWARDS (an NTP
-            # correction, resume from suspend): dt goes negative, and an
-            # unclamped negative factor eases away from the target and through
-            # mired's singularity at 0, yielding negative Kelvin. A tick that
-            # went backwards in time should simply hold.
+            # Clamped to [0, 1]. A negative dt (wall clock stepped backwards) must
+            # hold: a negative factor would pass through mired 0 into negative Kelvin.
             factor = 1.0 if ts <= 0 else max(0.0, min(1.0, dt / ts))
 
             if connector not in self._current_k:
@@ -285,9 +239,8 @@ class Orchestrator:
         theme = self._config.theme
         if self._theme_applier is None or not theme.enabled:
             return
-        # Paused FREEZES the theme rather than neutralizing it: neutral gamma is a
-        # meaningful "filter off" state, but there is no neutral theme. _theme_mode
-        # is left untouched, so unpausing re-evaluates and corrects if the day moved on.
+        # Pause freezes the theme (there is no neutral theme). _theme_mode is kept, so
+        # unpausing re-evaluates.
         if self._paused:
             return
 
@@ -303,19 +256,14 @@ class Orchestrator:
             return
 
         variant: ThemeVariant = theme.light if mode == LIGHT else theme.dark
-        # The applier logs and reports its own skipped elements; a partly-applied
-        # theme still counts as applied, or every tick would retry forever.
+        # A partly applied theme still counts as applied, or every tick would retry.
         skipped = self._theme_applier.apply(variant)
         if skipped:
             log.warning("theme applied with skipped elements: %s", skipped)
         self._theme_mode = mode
 
     def status(self) -> dict:
-        # Side effect worth knowing about: the per-display manual lookup goes
-        # through _manual_entry, which evicts expired entries from
-        # self._manual. So this read path mutates state. It is benign -- the
-        # same entry would be evicted by the next tick regardless -- but it
-        # means status() is not a pure observer.
+        # Not a pure read: _manual_entry evicts expired manual entries.
         now = self._clock()
         displays = self._backend.list_displays()
         actions = resolve_rules(
@@ -330,15 +278,12 @@ class Orchestrator:
         for display in displays:
             connector = display.connector
             dc = self._config.displays.get(connector, DisplayConfig())
-            # Report what the display is actually showing, not its masked-off
-            # eased position -- the GUI renders this as the live temperature.
+            # Report what the display shows, not its masked-off eased position.
             current_k = self._apply_enabled_mask(
                 connector, self._current_k.get(connector, NEUTRAL_KELVIN)
             )
             action = actions.get(connector, NO_ACTION)
-            # Three distinct states the GUI must be able to tell apart: no
-            # override (both null), an override that never expires (kelvin set,
-            # expiry null), and a timed one (both set).
+            # No override: both null. Open-ended: kelvin set, expiry null. Timed: both set.
             manual = self._manual_entry(connector, now)
             manual_expires_in_s = None
             if manual is not None and manual[1] is not None:
@@ -354,11 +299,8 @@ class Orchestrator:
                     "manual_expires_in_s": manual_expires_in_s,
                 }
             )
-        # _theme_manual_mode evicts an expired override as a side effect (same
-        # pattern as _manual_entry above), which matters here: _tick_theme
-        # returns at the pause guard before it runs, so while paused a status()
-        # that read self._theme_manual raw would report a stale "manual: light"
-        # forever instead of the None the GUI expects. See finding 5.
+        # Goes through _theme_manual_mode so an expired override is evicted even while
+        # paused, when _tick_theme returns before reaching it.
         manual_theme_mode = self._theme_manual_mode(now)
         manual_theme_expires_in_s = None
         if manual_theme_mode is not None and self._theme_manual is not None:
@@ -366,9 +308,7 @@ class Orchestrator:
             if expiry is not None:
                 manual_theme_expires_in_s = max(0, round((expiry - now).total_seconds()))
 
-        # "windows" is additive alongside "window": the focused entry (if any)
-        # comes first with focused=True, then each unfocused fullscreen entry
-        # with focused=False. "window" itself keeps its exact current shape.
+        # "windows": the focused entry first (if any), then each unfocused fullscreen one.
         windows = []
         if self._window is not None:
             windows.append(
@@ -440,12 +380,8 @@ class Orchestrator:
     def _apply_enabled_mask(self, connector: str, kelvin: float) -> float:
         """Blank a disabled display to neutral without disturbing its easing.
 
-        `enabled` is a mask over the output, deliberately NOT part of the
-        eased target: a disabled display's `_current_k` keeps tracking the
-        schedule as if it were on. That is what makes re-enabling mid-
-        transition rejoin the other displays where they are now, instead of
-        snapping to the transition's endpoint and sitting at a different
-        temperature until they catch up.
+        `enabled` masks the output rather than the eased target, so a disabled display keeps
+        tracking the schedule and rejoins the others mid-transition when re-enabled.
         """
         dc = self._config.displays.get(connector, DisplayConfig())
         return kelvin if dc.enabled else NEUTRAL_KELVIN
@@ -476,8 +412,7 @@ class Orchestrator:
         if self._paused:
             return NEUTRAL_KELVIN
 
-        # dc.enabled is deliberately not consulted here -- it masks the output
-        # after easing, see _apply_enabled_mask.
+        # dc.enabled is not consulted: it masks the output after easing.
         dc = self._config.displays.get(connector, DisplayConfig())
 
         manual = self._manual_kelvin(connector, now)

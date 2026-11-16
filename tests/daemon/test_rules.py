@@ -103,10 +103,8 @@ def test_unknown_action_raises():
 
 
 def test_fixed_action_without_kelvin_raises():
-    # Config validation prevents this from arising via load_config(), but a
-    # programmatically constructed Rule(action="fixed") with no action_kelvin
-    # must fail loudly here rather than raising a bare TypeError deeper down
-    # (float(None)) when tick() calls resolve_rules().
+    # load_config() rejects this, but a hand-built Rule must fail loudly here
+    # rather than with a bare TypeError from float(None).
     rule = Rule(action="fixed", match_app_glob="*", scope="all")
     with pytest.raises(ValueError, match="action_kelvin"):
         resolve_rules(_win(), [rule], CONNECTORS)
@@ -288,13 +286,9 @@ def test_empty_unfocused_is_identical_to_omitting_it():
 
 
 def test_unfocused_fullscreen_recheck_does_not_rely_on_the_rule_glob():
-    # The engine must not trust the extension to publish only fullscreen
-    # windows as unfocused. config.py rejects match_unfocused without
-    # match_fullscreen, so this Rule can only be built directly -- which is
-    # exactly the point: rules.py enforces the invariant on its own, and this
-    # test is the only thing that proves the explicit re-check in
-    # resolve_rules is load-bearing rather than dead weight behind
-    # rule_matches' own fullscreen constraint.
+    # The engine must not trust the extension to publish only fullscreen windows as
+    # unfocused. config.py rejects match_unfocused without match_fullscreen, so this
+    # Rule can only be built directly; it proves resolve_rules re-checks on its own.
     rule = Rule(
         action="disable",
         match_app_glob="mpv",

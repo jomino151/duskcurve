@@ -1,15 +1,10 @@
 """The GUI's single source of local truth.
 
-PURE module: no gi. The daemon owns the real state; this mirrors the last
-config and status it reported. Views render from here and never mutate it
-directly -- they build a new Config and call apply_config().
+No gi. Mirrors the last config and status the daemon reported; views build a new Config and
+call apply_config() rather than mutating it. Subscribers are plain callables.
 
-Subscription uses plain callables rather than GObject signals so the store
-stays gi-free and directly testable.
-
-last_error ownership: set by any failed parse (set_config_text, set_status_text)
-or rejected apply_config; cleared only by a successful apply_config or an
-explicit clear_error(). This ensures errors persist until shown to the user.
+`last_error` is set by a failed parse or a rejected apply, and cleared only by a successful
+apply_config() or clear_error(), so an error persists until shown.
 """
 
 import logging
@@ -44,8 +39,7 @@ class AppState:
         return unsubscribe
 
     def _notify(self) -> None:
-        # A raising subscriber must not stop the others from re-rendering, and
-        # must never propagate into a D-Bus callback.
+        # A raising subscriber must not stop the others or reach a D-Bus callback.
         for callback in list(self._subscribers):
             try:
                 callback()
@@ -75,23 +69,19 @@ class AppState:
         self._notify()
 
     def clear_error(self) -> None:
-        """Acknowledge that an error has been shown; clear it so the next one
-        is visible."""
+        """Acknowledge that the error has been shown."""
         self.last_error = None
         self._notify()
 
     def set_error(self, message: str) -> None:
-        """Record an error that originated outside the parse/apply paths above
-        (e.g. a failed D-Bus call a view made directly, bypassing apply_config).
-        Mirror of clear_error(): sets last_error and notifies subscribers."""
+        """Record an error from outside the parse/apply paths, e.g. a direct D-Bus call."""
         self.last_error = message
         self._notify()
 
     # -- outbound -------------------------------------------------------
 
     def apply_config(self, cfg: Config) -> bool:
-        """Send cfg to the daemon. Optimistic: store and notify first,
-        revert on failure."""
+        """Send cfg to the daemon. Optimistic: store and notify first, revert on failure."""
         previous = self.config
         self.config = cfg
         self._notify()

@@ -1,29 +1,9 @@
-"""The main application window -- assembles the four views around the store.
+"""The main application window: assembles the four views around the store.
 
-This module (and `app.py`) is the only place in `duskcurve.gui` allowed to
-import `gi` at module scope: everything downstream of here is UI wiring, not
-logic, and both are excluded from the gi-free contract enforced by
-`tests/gui/test_no_gi_import.py` (they are never imported from
-`duskcurve.gui.__init__` or a pure module).
-
-Two re-entrancy hazards are specific to this file, on top of the guard
-pattern the four views already establish:
-
-- **Render re-entrancy**: `_render()` is the `AppState` subscriber. Showing
-  an error toast ends with `state.clear_error()`, which itself calls
-  `AppState._notify()` -- i.e. it calls straight back into `_render()`
-  before the outer call has returned. `_render()` guards against this with
-  `self._rendering`, exactly like every view's own outbound-write guard,
-  except here it guards *re-entrant renders* rather than outbound daemon
-  calls.
-- **One-time banner**: "the first successful `apply_config` of the
-  session" is not a store event `AppState` exposes -- `apply_config()`
-  returns a bool but nothing subscribes to *that*. The window wraps
-  `state.apply_config` with a closure that observes the return value and
-  fires the banner on the first `True`, then restores nothing (the wrapped
-  version lives for the rest of the session). Every view calls
-  `self._state.apply_config(...)`, which is an attribute lookup on the
-  live instance, so they all go through the wrapped version transparently.
+Like `app.py`, it imports `gi` at module scope. `_render()` is the `AppState` subscriber and
+`state.clear_error()` notifies it again, so `_rendering` makes that nested render a no-op.
+The one-time formatting banner is driven by wrapping `state.apply_config` and watching for
+the first success; views look the method up on the instance, so they use the wrapper.
 """
 
 import logging
@@ -52,15 +32,9 @@ _APP_VERSION = "0.1.0"
 _DEFAULT_TICK_SECONDS = 2.0
 _NARROW_WIDTH = "550sp"
 
-# Adwaita has no built-in minimum size for ApplicationWindow -- without one,
-# GTK lets the window shrink until content (the curve editor's 320px content
-# height plus the surrounding rows) no longer fits, which is what produced
-# the "AdwToolbarView exceeds ... height" warnings on real hardware. These
-# are genuinely usable floors, not just warning-silencers: 360 is the
-# conventional minimum width for a single-column Adwaita layout (and sits
-# comfortably under the view-switcher breakpoint above), and 480 leaves
-# useful headroom above a phone-sized "unusably squashed" window while still
-# relying on the per-view Gtk.ScrolledWindow for anything taller.
+# Adw.ApplicationWindow has no minimum size, so the window could shrink below what its content
+# fits in (AdwToolbarView "exceeds height" warnings). 360 is the conventional single-column
+# width, under the narrow breakpoint; taller content scrolls per view.
 _MIN_WIDTH = 360
 _MIN_HEIGHT = 480
 
@@ -89,23 +63,14 @@ class DuskcurveWindow(Adw.ApplicationWindow):
     def __init__(self, application: Adw.Application, state: AppState, client: DaemonClient) -> None:
         super().__init__(application=application, title=_APP_NAME)
         self.set_default_size(900, 700)
-        # See _MIN_WIDTH/_MIN_HEIGHT: without an explicit minimum, Adwaita
-        # warns ("DuskcurveWindow does not have a minimum size...") and lets
-        # the window shrink past what its content can render.
         self.set_size_request(_MIN_WIDTH, _MIN_HEIGHT)
 
         self._state = state
         self._client = client
 
-        # Guards a render triggered re-entrantly by state.clear_error()
-        # (called from within this window's own render pass) from recursing
-        # back into _render(). See module docstring.
         self._rendering = False
         self._formatting_banner_shown = False
-        # Guards _on_close_request against a second close-request re-running
-        # teardown (unsubscribe + stop_polling + client.stop()). Several of
-        # those happen to be independently idempotent today, but the guard
-        # makes that an explicit contract instead of an accident.
+        # A second close-request must not re-run teardown.
         self._closing = False
 
         self._install_apply_success_hook()
@@ -216,8 +181,7 @@ class DuskcurveWindow(Adw.ApplicationWindow):
     # -- construction helpers --------------------------------------------
 
     def _install_apply_success_hook(self) -> None:
-        """See module docstring: wrap apply_config to observe success without
-        AppState needing to know about the one-time banner."""
+        """Wrap apply_config to observe success without AppState knowing about the banner."""
         original_apply_config = self._state.apply_config
 
         def wrapped(cfg: Config) -> bool:
@@ -271,10 +235,8 @@ class DuskcurveWindow(Adw.ApplicationWindow):
         if error is None:
             return
         self._toast_overlay.add_toast(Adw.Toast(title=error))
-        # Acknowledge it so a later, unrelated render (a routine status poll)
-        # cannot show the same error again. clear_error() notifies
-        # subscribers, re-entering _render() synchronously -- the
-        # self._rendering guard above makes that re-entrant call a no-op.
+        # Acknowledge it so a later render does not show it again. clear_error() re-enters
+        # _render() synchronously; the _rendering guard makes that a no-op.
         self._state.clear_error()
 
     def _on_apply_success(self) -> None:
@@ -297,12 +259,8 @@ class DuskcurveWindow(Adw.ApplicationWindow):
         except Exception as exc:
             log.exception("set_paused failed")
             self._state.set_error(str(exc))
-            # The daemon never applied `attempted`, so the toggle must not
-            # keep showing it -- otherwise the app's most prominent state
-            # indicator lies until the next status poll corrects it (up to
-            # tick_interval_seconds later). Revert to the store's last known
-            # value under the re-entrancy guard so this doesn't loop back
-            # into _on_pause_toggled itself.
+            # The daemon did not apply `attempted`: revert the toggle to the store's value,
+            # under the guard so it does not re-enter _on_pause_toggled.
             status = self._state.status
             reverted = status.paused if status is not None else not attempted
             self._rendering = True
@@ -349,6 +307,5 @@ class DuskcurveWindow(Adw.ApplicationWindow):
         self._closing = True
         self._unsubscribe()
         self._client.stop()
-        # False = propagate: let the default close handler run and destroy
-        # the window instead of vetoing the close.
+        # False lets the default handler destroy the window.
         return False

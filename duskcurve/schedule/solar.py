@@ -1,7 +1,4 @@
-"""NOAA solar-position algorithm: sunrise, solar noon, and sunset for a given day/place.
-
-Pure stdlib (datetime/zoneinfo/math/dataclasses) — no gi/D-Bus/GTK/network/filesystem.
-"""
+"""NOAA solar-position algorithm: sunrise, solar noon and sunset for a day and place."""
 
 import math
 from dataclasses import dataclass
@@ -16,19 +13,15 @@ class SolarEvents:
 
 
 def solar_events(lat: float, lon: float, day: date, tz: tzinfo) -> SolarEvents:
-    """Compute sunrise, solar noon, and sunset for `day` at (lat, lon) in `tz`.
+    """Compute sunrise, solar noon and sunset for `day` at (lat, lon) in `tz`.
 
-    `lat`/`lon` are in degrees (lon east-positive). Uses the NOAA solar-position
-    spreadsheet algorithm (refraction + solar radius correction baked into the
-    90.833 degree zenith angle).
-
-    Note: inside the polar circles (permanent midnight sun or polar night),
-    the hour-angle argument to `math.acos` falls outside [-1, 1] and this
-    raises `ValueError` -- such latitudes are out of scope for this function.
+    `lat`/`lon` are in degrees, longitude east-positive. Refraction and solar
+    radius are folded into the 90.833 degree zenith. Raises `ValueError` during
+    midnight sun or polar night, when the hour angle has no solution.
     """
     noon_local = datetime(day.year, day.month, day.day, 12, tzinfo=tz)
     offset = noon_local.utcoffset()
-    assert offset is not None  # tz is always a fixed zone here
+    assert offset is not None  # a datetime with a real tz has an offset
     tz_hours = offset.total_seconds() / 3600
 
     year, month = day.year, day.month

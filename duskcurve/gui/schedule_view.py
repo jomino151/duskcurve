@@ -1,26 +1,8 @@
-"""The Schedule view -- the app's main page.
+"""The Schedule view, the app's main page: mode, wake/bedtime, curve editor and manual override.
 
-Wraps the curve editor with mode selection, wake/bedtime, and manual
-temperature controls. This module is gi-dependent (unlike the pure
-`state`/`editing`/`protocol`/`geometry` modules it calls into) and is
-imported only by widget code, never by `duskcurve.gui.__init__` or a pure
-module.
-
-Two guards recur through every interactive control here:
-
-- **Gesture guard**: while a wake/bedtime entry is being edited, `_render()`
-  skips pushing a fresh value into that specific widget -- otherwise the
-  periodic status poll (driven by `AppState` subscribers) would fight the
-  user's in-progress interaction. The manual-temperature scale carries the
-  equivalent guard (plus its own dirty tracking) inside `ManualTempScale`,
-  which `display_panel.py` shares.
-- **Re-entrancy guard**: `_render()` sets `self._rendering = True` for the
-  duration of pushing store values into widgets, and every widget's own
-  `changed`/`notify` handler checks that flag first and returns immediately
-  if it is set. Since `_render()` itself never calls `AppState.apply_config`
-  or a `DaemonClient` method, and the guarded handlers are the *only* places
-  that do, a programmatic push can never be mistaken for a user edit and
-  loop back into another outbound call.
+Two guards recur: `_rendering` is set while `_render()` pushes store values into widgets, and
+every outbound handler returns early when it is set; wake/bedtime rows are not rewritten while
+being edited, so the status poll does not fight the user.
 """
 
 import dataclasses
@@ -69,9 +51,7 @@ def _parse_hhmm(text: str) -> tuple[int, int] | None:
 
 
 def build_day_context(cfg: Config, now: datetime) -> DayContext:
-    """Today's DayContext, built the same way Orchestrator._day_context does:
-    solar events for the configured location plus the configured wake/bedtime
-    clock times, all on the given day."""
+    """Today's DayContext, built as Orchestrator._day_context does."""
     tz = ZoneInfo(cfg.location.timezone)
     day = now.date()
     ev = solar_events(cfg.location.latitude, cfg.location.longitude, day, tz)
@@ -88,10 +68,7 @@ class ScheduleView(Gtk.Box):
         self._state = state
         self._client = client
 
-        # Re-entrancy guard: True only while _render() is pushing values into
-        # widgets. Every outbound handler below checks this first.
         self._rendering = False
-        # Gesture guard state.
         self._wake_editing = False
         self._bedtime_editing = False
         # Fork-to-custom banner: shown once per session.
@@ -120,14 +97,8 @@ class ScheduleView(Gtk.Box):
         schedule_group.add(self._mode_row)
 
         self._wake_row = Adw.EntryRow(title="Wake (HH:MM)")
-        # Adw.EntryRow only emits ::apply when show-apply-button is True
-        # (verified live against libadwaita 1.5.0; it's False by default) --
-        # without this, Enter never committed and the next render silently
-        # reverted the user's typed text. Same bug as the Preferences
-        # timezone field; see prefs.py. ::apply itself only covers Enter and
-        # the apply-button click, though (also verified live) -- it does not
-        # fire on a plain focus-out, so the focus-leave handler below commits
-        # explicitly too.
+        # Adw.EntryRow emits ::apply only when show-apply-button is True, and then only on
+        # Enter or the button, not on focus-out; the focus-leave handler commits explicitly.
         self._wake_row.set_show_apply_button(True)
         self._wake_row.connect("apply", self._on_wake_apply)
         focus = Gtk.EventControllerFocus()
@@ -151,15 +122,8 @@ class ScheduleView(Gtk.Box):
         self._curve_editor = CurveEditor(self._on_keypoints_changed)
         curve_frame = Gtk.Frame()
         curve_frame.set_child(self._curve_editor)
-        # The curve editor has a fixed 600px content width (keeping the
-        # drawn curve legible) that does not shrink -- without this, that
-        # fixed width propagates straight up through the page's vertical
-        # ScrolledWindow into the window's own size request, so a window
-        # narrowed toward the minimum could never actually get that narrow
-        # (an AdwToolbarView "exceeds width" warning, discovered live at the
-        # 360px minimum). Scrolling horizontally here, and only here, keeps
-        # the curve at full resolution while letting the window (and every
-        # other row on this page) shrink freely.
+        # The editor has a fixed 600px content width; scrolling it horizontally stops that
+        # width propagating into the window's size request at narrow widths.
         curve_scroller = Gtk.ScrolledWindow()
         curve_scroller.set_child(curve_frame)
         curve_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
@@ -172,9 +136,7 @@ class ScheduleView(Gtk.Box):
         )
         manual_group = self._manual_group
 
-        # A control, not a readout: never written from status, so unlike the
-        # scale it needs no re-entrancy guard. Whatever is selected when the
-        # user releases the slider (or clicks a preset) is what gets sent.
+        # Never written from status, so it needs no re-entrancy guard.
         self._duration_row = Adw.ComboRow(
             title="Duration", model=Gtk.StringList.new(list(DURATION_LABELS))
         )
@@ -243,11 +205,8 @@ class ScheduleView(Gtk.Box):
 
             self._scale.render(cfg.min_kelvin, cfg.max_kelvin, self._display_kelvin(status, cfg))
 
-            # The global manual override lives on connector "", so it shows up
-            # identically on every display -- reading the first is enough.
-            # A *per-display* override on displays[0] is reported the same way
-            # and will also light this description up; the Resume button and
-            # _display_kelvin have always had that shape, so this follows it.
+            # The global override lives on connector "" and shows on every display, so the first
+            # is enough. A per-display override on displays[0] also lights this up.
             first = status.displays[0] if status is not None and status.displays else None
             self._manual_group.set_description(
                 manual_description(
@@ -314,8 +273,7 @@ class ScheduleView(Gtk.Box):
 
     def _on_wake_focus_leave(self, _ctrl: Gtk.EventControllerFocus) -> None:
         self._wake_editing = False
-        # ::apply doesn't fire on a plain focus-out (verified live) -- commit
-        # explicitly so tabbing/clicking away doesn't silently drop the edit.
+        # ::apply does not fire on focus-out; commit so tabbing away keeps the edit.
         self._on_wake_apply(self._wake_row)
 
     def _on_bedtime_focus_enter(self, _ctrl: Gtk.EventControllerFocus) -> None:
@@ -337,9 +295,7 @@ class ScheduleView(Gtk.Box):
             return
         hour, minute = parsed
         wake = f"{hour:02d}:{minute:02d}"
-        # Focus-leave calls this unconditionally, and pressing Enter fires
-        # ::apply *and then* focus-leave, so without this guard merely tabbing
-        # through the field writes config.toml and broadcasts StatusChanged.
+        # Focus-leave calls this unconditionally; skip no-op writes.
         if wake == cfg.wake:
             return
         self._state.apply_config(dataclasses.replace(cfg, wake=wake))
@@ -368,11 +324,7 @@ class ScheduleView(Gtk.Box):
         self._scale.commit_explicit(float(kelvin))
 
     def _on_duration_changed(self, _row: Adw.ComboRow, _pspec: GObject.ParamSpec) -> None:
-        # Re-arm an override that is already running. Without this, changing
-        # only the duration sends nothing: the scale commits on value-changed,
-        # so "2700 K until cleared, then pick 30 min" would silently stay
-        # permanent. With no override active there is nothing to re-arm, and
-        # the new selection simply applies to the next commit.
+        # Re-arm a running override with the new duration; the scale alone would not resend.
         if self._rendering:
             return
         status = self._state.status

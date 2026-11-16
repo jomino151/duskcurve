@@ -1,12 +1,6 @@
-"""Duskcurve daemon entry point.
+"""Daemon entry point.
 
-SYSTEM module: wires the pure core (duskcurve.daemon.config, .orchestrator,
-.service) to the real world -- the real Mutter D-Bus backend, GNOME Night
-Light takeover, the org.duskcurve.Daemon D-Bus service, config-file watching,
-the org.duskcurve.WindowWatcher subscription (focused-window rules), and the
-GLib main loop. Verified by import + the M4 milestone-E manual/systemd run,
-not by a full behavioral unit test (see tests/daemon/test_main_smoke.py for
-the one live-dispatch smoke test that *is* covered).
+Wires the orchestrator to Mutter, D-Bus, the config file and the GLib main loop.
 """
 
 import logging
@@ -60,33 +54,22 @@ def _ensure_config_file(config_path: str) -> None:
 
 
 def _build_backend() -> MutterBackend:
-    """Real MutterBackend over the real session-bus transport (mirrors duskcurve-apply)."""
+    """MutterBackend over the session-bus transport."""
     return MutterBackend(GioMutterTransport())
 
 
 class _ConfigFileWatchState:
-    """Dedup state for the config-file watcher (pure, no gi -- unit-testable directly).
-
-    Tracks the config-file text the daemon has already accounted for -- either
-    because it just wrote it itself (a D-Bus SetConfig) or already reloaded it
-    -- so a GFileMonitor notification carrying that exact same content is
-    recognized as already-applied rather than triggering a second, redundant
-    `service.reload_config()` (and a duplicate StatusChanged emission).
-    """
+    """Tracks the config text already applied, so a file-monitor event for it is skipped."""
 
     def __init__(self, initial_text: str) -> None:
         self._last_seen = initial_text
 
     def note_current_state(self, text: str) -> None:
-        """Call whenever the daemon itself is the reason the file now reads
-        `text` (e.g. right after any DaemonService mutation), so a subsequent
-        file-monitor notification for that same content is not mistaken for a
-        new external edit."""
+        """Record `text` as applied after the daemon itself wrote it."""
         self._last_seen = text
 
     def is_new_change(self, text: str) -> bool:
-        """True (and records `text` as seen) iff `text` differs from what was
-        last seen -- i.e. this is a genuine, not-yet-applied change."""
+        """True, and record `text`, if it differs from the last seen text."""
         if text == self._last_seen:
             return False
         self._last_seen = text
@@ -126,12 +109,7 @@ class _Daemon:
 
         self.loop = GLib.MainLoop()
 
-        # Night Light takeover is the LAST step of construction: everything above
-        # can fail without having touched Night Light at all, so nothing needs
-        # restoring in that case. (main() additionally guards the setup calls
-        # that happen *after* this constructor returns -- own_bus_name(),
-        # watch_config_file(), etc. -- restoring Night Light if any of those
-        # fail post-takeover.)
+        # Night Light is taken over last, so a failure above has nothing to restore.
         self.night_light_was_enabled = night_light_enabled()
         set_night_light(False)
 
@@ -158,12 +136,9 @@ class _Daemon:
         log.warning("could not acquire or lost bus name %s (another instance running?)", name)
 
     def _emit_status_signal(self, status_json: str) -> None:
-        """Bare StatusChanged emitter -- no config-mirror side effects.
+        """Emit StatusChanged without touching the config mirror.
 
-        Use this (not `_emit_status_changed`) for any caller whose status
-        change was NOT caused by the daemon itself writing the config file --
-        e.g. a window-focus event. See `_emit_status_changed` for why the two
-        must stay separate.
+        For status changes not caused by a config write, such as window focus.
         """
         if self._connection is None:
             return
@@ -176,31 +151,14 @@ class _Daemon:
         )
 
     def _emit_status_changed(self, status_json: str) -> None:
-        # DaemonService fires this after every mutation (SetConfig, ReloadConfig,
-        # SetPaused, ...). Refresh our own config mirror here so the orchestrator's
-        # `clock` closure (which reads self.config.location.timezone) picks up a
-        # changed timezone/location instead of being stuck with the config from
-        # daemon startup.
+        # Fired by DaemonService after every mutation. Refresh the config mirror so
+        # the orchestrator's clock follows a changed timezone.
         self.config = load_config(self.service.get_config())
 
-        # Re-read the actual on-disk bytes (not dump_config(self.config) -- a
-        # SetConfig writes the client's exact submitted text, which need not be
-        # byte-identical to our canonical serialization) and tell the config-file
-        # watcher this is the current, already-applied state. Without this, the
-        # GFileMonitor "changed" event that a SetConfig's write triggers would be
-        # seen as a *new* external edit and cause a redundant reload_config() +
-        # a second StatusChanged for the same change.
-        #
-        # CAUTION: this bookkeeping must ONLY run for changes the daemon itself
-        # wrote to the config file (SetConfig et al). A window-focus event is
-        # NOT such a change -- it must call `_emit_status_signal` directly
-        # instead of this method. If a focus change ran this method, it would
-        # stamp `note_current_state` with whatever the config file currently
-        # contains, which can race a pending-but-not-yet-applied external edit
-        # (the user just saved new rules; the GFileMonitor "changed"
-        # notification for that edit hasn't fired yet) and cause that edit's
-        # `reload_config()` to be silently skipped as "already applied". Do
-        # not "simplify" this back into one method.
+        # Record the on-disk bytes (a SetConfig writes the client's exact text, not our
+        # serialisation) as applied, so the file-monitor event for our own write is
+        # skipped. Only for daemon-written changes: a window event must use
+        # _emit_status_signal, or it could mask a just-saved external edit.
         try:
             with open(self.config_path, encoding="utf-8") as f:
                 self._config_watch.note_current_state(f.read())
@@ -218,17 +176,12 @@ class _Daemon:
     ) -> None:
         """A focus/fullscreen/monitor change arrived from the shell extension."""
         self.orchestrator.set_window_state(window, unfocused)
-        # Apply immediately rather than waiting up to tick_interval_seconds -- a
-        # fullscreen game should not sit warm for two seconds after launching.
+        # Apply now rather than at the next tick, so a fullscreen game is not warm for seconds.
         try:
             self.orchestrator.tick()
         except Exception:
             log.exception("tick after a window change failed")
-        # Bare signal emit only -- NOT _emit_status_changed(), which would also
-        # mirror the on-disk config into the file-watcher's dedup state. A
-        # window event has nothing to do with the config file; running that
-        # bookkeeping here could mask a just-saved, not-yet-reloaded external
-        # edit (see _emit_status_changed's docstring).
+        # Not _emit_status_changed: a window event is unrelated to the config file.
         self._emit_status_signal(self.service.get_status())
 
     # ------------------------------------------------------------------
@@ -249,9 +202,7 @@ class _Daemon:
             return
 
         if not self._config_watch.is_new_change(text):
-            # Either our own atomic write (e.g. a SetConfig via D-Bus, already
-            # accounted for in _emit_status_changed) or a duplicate notification
-            # for the same change -- nothing new to reload.
+            # Our own write or a duplicate notification: nothing new to reload.
             return
 
         try:
@@ -288,9 +239,7 @@ class _Daemon:
             return
         self._shutting_down = True
 
-        # Stop the window watcher first, before displays are reset: otherwise a
-        # late FocusChanged callback could re-apply gamma via _on_window_changed
-        # after (or interleaved with) teardown below.
+        # Stop the watcher first so a late focus callback cannot re-apply gamma mid-teardown.
         try:
             self.watcher.stop()
         except Exception:
@@ -321,12 +270,8 @@ def main() -> int:
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
 
-    # Night Light is taken over as the LAST step of _Daemon.__init__, so if
-    # construction itself fails, Night Light was never touched -- `daemon` stays
-    # unbound and there's nothing to restore. But own_bus_name()/watch_config_file()/
-    # install_signal_handlers() run *after* a successfully constructed daemon (Night
-    # Light already off); if any of those raise, restore Night Light before bailing
-    # out rather than leaving it permanently disabled.
+    # Night Light is disabled at the end of _Daemon.__init__. If a later setup step
+    # raises, restore it rather than leave it off.
     daemon: _Daemon | None = None
     try:
         daemon = _Daemon()
@@ -335,15 +280,9 @@ def main() -> int:
         try:
             daemon.watcher.start()
         except Exception:
-            # The window watcher is optional by design (graceful degradation:
-            # window rules go inert, the schedule keeps running unchanged) --
-            # unlike own_bus_name()/watch_config_file() above, its failure
-            # must not abort daemon startup or revert Night Light.
+            # Optional: without it window rules go inert and the schedule still runs.
             log.exception("window watcher failed to start; window rules will be inert")
-        # Apply gamma once immediately, rather than waiting for the first
-        # timer tick (up to tick_interval_seconds away): otherwise displays
-        # sit at neutral 6500 K -- a brief flash -- for that whole interval
-        # right after Night Light was just disabled above.
+        # Apply gamma now, or displays sit at neutral until the first timer tick.
         daemon.tick_cb()
         GLib.timeout_add_seconds(max(1, int(daemon.config.tick_interval_seconds)), daemon.tick_cb)
         daemon.install_signal_handlers()

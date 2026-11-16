@@ -1,11 +1,6 @@
-"""TOML config schema for the Duskcurve daemon.
+"""TOML config schema: parsing, validation and serialisation.
 
-PURE module: stdlib only (tomllib, zoneinfo, dataclasses, re) plus
-duskcurve.schedule.MODES for validating the `mode` field and duskcurve.daemon.rules
-for the `Rule` dataclass and `RULE_ACTIONS`. No gi/D-Bus/GLib.
-
-`dump_config` is a small hand-written TOML serializer (tomli_w is not
-installed) whose output is guaranteed to round-trip through `load_config`
+`dump_config` is a hand-written serialiser whose output round-trips through `load_config`
 to an equal `Config`.
 """
 
@@ -81,21 +76,12 @@ class Config:
     min_kelvin: float = 1200.0
     max_kelvin: float = 6500.0
     transition_seconds: float = 20.0
-    # Easing time for a change driven by a window rule, which is a reaction to
-    # a deliberate user action (going fullscreen) rather than the gradual
-    # circadian drift transition_seconds is tuned for. Defaults to 0 = instant.
+    # Easing time for a window-rule change; 0 = instant.
     rule_transition_seconds: float = 0.0
-    # Easing time for a deliberate manual temperature change (slider set, or
-    # explicitly clearing a manual override) -- quicker than the schedule's
-    # gradual drift, but not instant like a rule or a pause/enable toggle.
-    #
-    # This is a TIME CONSTANT, not a duration: each tick closes
-    # min(1, dt / seconds) of the remaining gap, so the approach is
-    # exponential and the perceived settle is longer than the number. At the
-    # default 2 s tick interval, 2.0 closes the whole gap in one tick (~2 s
-    # perceived) while 3.0 takes ~8 s -- which read as sluggish on hardware.
-    # Hence 2.0: inside the "5 s max for a deliberate change" the manual pass
-    # asked for, still eased rather than a jump.
+    # Easing time for a manual temperature set or clear.
+    # A time constant, not a duration: each tick closes min(1, dt / seconds) of the
+    # remaining gap, so the approach is exponential. With the default 2 s tick,
+    # 2.0 closes the gap in one tick while 3.0 takes about 8 s.
     manual_transition_seconds: float = 2.0
     tick_interval_seconds: float = 2.0
     displays: dict[str, DisplayConfig] = field(default_factory=dict)  # keyed by connector
@@ -187,8 +173,7 @@ def _validate_theme_variant(raw: object, label: str, default: ThemeVariant) -> T
         values[name] = value
 
     scheme = values["color_scheme"]
-    # "" means "leave color-scheme alone"; anything else must be in the schema's
-    # enum, because Gio silently returns False for an out-of-range value.
+    # "" leaves color-scheme alone; Gio silently rejects values outside the schema enum.
     if scheme and scheme not in _COLOR_SCHEMES:
         raise ConfigError(
             f"{label}.color_scheme {scheme!r} must be '' or one of {sorted(_COLOR_SCHEMES)}"
@@ -218,9 +203,7 @@ def _validate_theme(raw: dict) -> ThemeConfig:
             raise ConfigError(f"theme.{name} must be an integer, got {value!r}")
         offsets[name] = value
 
-    # Identical anchors make both arcs of the day empty -- there is no sensible
-    # answer, so reject it here rather than let the (deliberately total) policy
-    # function fall back to dark forever.
+    # Identical anchors leave both arcs of the day empty; desired_mode would sit on dark.
     if light_from == dark_from and offsets["light_offset_min"] == offsets["dark_offset_min"]:
         raise ConfigError("theme.light_from and theme.dark_from must differ")
 
@@ -276,11 +259,8 @@ def _validate_schedule(raw: dict) -> tuple[str, str, str, tuple[KeypointConfig, 
     if mode == "custom" and not keypoints:
         raise ConfigError("schedule.mode 'custom' requires a non-empty schedule.keypoints list")
 
-    # Keypoints alongside a non-custom mode are deliberately *allowed*: they
-    # are the user's parked custom curve, retained but unused while a built-in
-    # mode is selected, so that switching back to "custom" restores the fork
-    # rather than discarding it (design spec 6.4). dump_config emits them
-    # regardless of mode to keep that promise across a save/load cycle.
+    # Keypoints with a built-in mode are allowed: a parked custom curve, kept so
+    # switching back to "custom" restores it. dump_config emits them regardless of mode.
     return wake, bedtime, mode, keypoints
 
 
@@ -476,10 +456,7 @@ def load_config(text: str) -> Config:
 def _fmt_float(value: float) -> str:
     """Format a float in fixed-point (never exponent) notation, losslessly.
 
-    repr(value) is the shortest decimal string that round-trips to the same
-    float; parsing that through Decimal and reformatting with the 'f'
-    (fixed-point) spec forces plain digits even for magnitudes where repr()
-    would otherwise use exponent notation (e.g. 1e-08).
+    Going through Decimal avoids repr()'s exponent form for tiny values (e.g. 1e-08).
     """
     text = format(decimal.Decimal(repr(float(value))), "f")
     if "." not in text:
@@ -497,8 +474,7 @@ def _fmt_bool(value: bool) -> str:
 
 
 def _dump_key(key: str) -> str:
-    """Quote a TOML key if it isn't a bare key (e.g. connector names like DP-2 are bare-safe,
-    but be defensive for arbitrary connector names containing '.' or other special chars)."""
+    """Quote a TOML key unless it is bare-safe (connector names may contain '.' or similar)."""
     if re.match(r"^[A-Za-z0-9_-]+$", key):
         return key
     return _fmt_str(key)
@@ -523,8 +499,7 @@ def dump_config(cfg: Config) -> str:
     lines.append(f"mode = {_fmt_str(cfg.mode)}")
     lines.append("")
 
-    # Emitted regardless of mode: a parked custom curve must survive a round
-    # trip while a built-in mode is selected. See _validate_schedule.
+    # Emitted regardless of mode so a parked custom curve survives a round trip.
     for kp in cfg.custom_keypoints:
         lines.append("[[schedule.keypoints]]")
         lines.append(f"anchor = {_fmt_str(kp.anchor)}")

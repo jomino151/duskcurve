@@ -1,4 +1,4 @@
-"""Duskcurve schedule: curves, solar events, and daily clock modes (pure, no system deps)."""
+"""Schedule: curves, solar events and the named daily modes, with no system dependencies."""
 
 from duskcurve.schedule.curve import (
     Anchor,

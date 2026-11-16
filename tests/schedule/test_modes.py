@@ -71,18 +71,13 @@ def test_classic_deep_overnight_is_night_hold():
     assert MODES["classic"].evaluate(_dt(3, 0), CTX) == pytest.approx(2700)
 
 
-# --- Regression: cross-module bug where evaluate() sorted keypoints by
-# resolved absolute time instead of walking the list in authored order.
-# With real solar events, event anchors can invert relative to each other
-# (e.g. bedtime shortly after sunset, or a high-latitude late sunset), which
-# scrambled the curve: midday read cold, overnight read wrong, and the
-# evening oscillated back up before settling.
+# --- Event anchors that invert against each other
+# evaluate() walks keypoints in list order, so inverted event anchors (bedtime
+# shortly after sunset, high-latitude late sunset) must not scramble the curve.
 
 
 def test_default_curve_with_real_solar_events_repro_config():
-    # Repro: wake 07:00, bedtime 22:00, real Berlin summer solstice sunset
-    # (~21:33), which lands *after* bedtime -- the inversion that broke the
-    # old sort-by-resolved-time evaluate.
+    # Berlin summer solstice: sunset (~21:33) lands after bedtime (22:00).
     day = date(2026, 6, 21)
     se = solar_events(52.52, 13.40, day, BERLIN)
     wake = datetime(day.year, day.month, day.day, 7, 0, tzinfo=BERLIN)
@@ -97,8 +92,7 @@ def test_default_curve_with_real_solar_events_repro_config():
     # Deep overnight must read the night temperature.
     assert DEFAULT_CURVE.evaluate(_at(3, 0), ctx) == pytest.approx(2700, abs=5)
 
-    # The evening wind-down (20:00 -> sunset+60 ~= 22:33) must be
-    # monotonically non-increasing -- no oscillation back up.
+    # The evening wind-down (20:00 -> sunset+60 ~= 22:33) never rises again.
     sample_times = [
         _at(20, 0),
         _at(20, 30),
@@ -114,10 +108,8 @@ def test_default_curve_with_real_solar_events_repro_config():
 
 
 def test_default_curve_high_latitude_late_sunset_day_plateau_not_dragged_down():
-    # High-latitude case: sunset 23:10, bedtime 00:30 (just after midnight),
-    # wake 07:00. bedtime resolves earlier in the day than sunset+60, another
-    # inversion. The daytime plateau must stay at 6500, not get dragged down
-    # by a scrambled ordering.
+    # Sunset 23:10, bedtime 00:30, wake 07:00: bedtime resolves before sunset+60,
+    # yet the daytime plateau must stay at 6500.
     day = date(2026, 6, 21)
     wake = datetime(day.year, day.month, day.day, 7, 0, tzinfo=BERLIN)
     sunrise = datetime(day.year, day.month, day.day, 3, 30, tzinfo=BERLIN)

@@ -5,26 +5,18 @@ const DISPLAY_CONFIG_OBJECT_PATH = '/org/gnome/Mutter/DisplayConfig';
 const DISPLAY_CONFIG_IFACE = 'org.gnome.Mutter.DisplayConfig';
 
 /**
- * Maps Meta.Window monitor indices to their connector names (e.g. "eDP-1",
- * "DP-2"). Mutter only exposes the reverse direction (connector -> index)
- * via Meta's monitor manager, and Meta.Monitor/Meta.Output are not
- * introspectable from GJS, so this inverts the mapping by asking
- * org.gnome.Mutter.DisplayConfig for the full list of connectors and
- * testing each one against get_monitor_for_connector().
+ * Maps Meta.Window monitor indices to connector names (e.g. "eDP-1").
+ * Meta.Monitor is not introspectable from GJS, so the mapping is inverted by
+ * asking org.gnome.Mutter.DisplayConfig for the connectors and testing each.
  */
 export class MonitorMap {
     constructor() {
         this._byIndex = new Map();
     }
 
-    // Refreshes the index -> connector map asynchronously. If provided,
-    // onDone is invoked after this._byIndex has been reassigned (success)
-    // or after a failed attempt (so callers relying on "the map is as
-    // fresh as it'll get for now" can still proceed, e.g. to publish
-    // using whatever map is currently in place). All D-Bus work, including
-    // the initial dispatch, is wrapped in try/catch: a synchronous throw
-    // from Gio.DBus.session.call() must never escape refresh() and unwind
-    // into enable(), since that step must survive a compositor hiccup.
+    // Refreshes the index -> connector map asynchronously; onDone runs on success
+    // and on failure, so callers can publish with whatever map is in place. Never
+    // throws: a failure here must not unwind into enable().
     refresh(onDone) {
         try {
             Gio.DBus.session.call(

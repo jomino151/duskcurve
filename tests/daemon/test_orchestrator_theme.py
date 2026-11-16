@@ -1,12 +1,4 @@
-"""Theme behaviour of the tick engine.
-
-Two of these tests are the reason M8 exists. `test_a_suspend_across_sunset_...`
-and `test_a_daemon_started_after_dark_...` encode the failure modes of the
-timer-based switcher this replaces: a scheduled instant that passes while the
-machine is asleep is never retried, and a broken timer chain leaves the theme
-wrong until the next login. DO NOT relax them into "the mode is eventually
-right" -- the point is that one tick suffices, with no catch-up machinery.
-"""
+"""Theme behaviour of the tick engine: one tick is enough to reach the correct mode."""
 
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -71,7 +63,7 @@ def test_first_tick_applies_unconditionally():
 
 
 def test_crossing_sunset_applies_dark_exactly_once():
-    # Sunset for this lat/lon/date is ~20:30; the times below straddle it with margin.
+    # Sunset is ~20:30; the probe times used throughout this file straddle it with margin.
     clock = FakeClock(_dt(20, 25))
     orch, applier = _new(_cfg(), clock)
     orch.tick()
@@ -86,10 +78,8 @@ def test_crossing_sunset_applies_dark_exactly_once():
 
 
 def test_a_suspend_across_sunset_is_corrected_by_a_single_tick():
-    # THE REGRESSION TEST. The timer-based switcher missed this entirely: a user
-    # timer cannot wake the machine, so a switch scheduled inside a suspend window
-    # simply never happened. Here the clock jumps two hours and one tick fixes it.
-    # NOTE: see the margin note in test_crossing_sunset_applies_dark_exactly_once.
+    # A switch scheduled inside a suspend window must still happen: the clock
+    # jumps two hours and one tick corrects the theme.
     clock = FakeClock(_dt(20, 25))
     orch, applier = _new(_cfg(), clock)
     orch.tick()
@@ -100,9 +90,7 @@ def test_a_suspend_across_sunset_is_corrected_by_a_single_tick():
 
 
 def test_a_daemon_started_after_dark_applies_dark_on_its_first_tick():
-    # THE OTHER REGRESSION TEST. The old script only ran at login and at its own
-    # scheduled instants, so a broken chain left the theme wrong until the next
-    # login. A fresh orchestrator must be correct immediately, not at sunrise.
+    # A fresh orchestrator is correct immediately, not only from the next sunrise.
     orch, applier = _new(_cfg(), FakeClock(_dt(23, 30)))
     orch.tick()
     assert applier.applied == [DARK_V]
@@ -124,7 +112,6 @@ def test_no_applier_is_a_no_op():
 
 
 def test_paused_freezes_the_theme_then_corrects_on_unpause():
-    # NOTE: see the margin note in test_crossing_sunset_applies_dark_exactly_once.
     clock = FakeClock(_dt(20, 25))
     orch, applier = _new(_cfg(), clock)
     orch.tick()
@@ -158,7 +145,7 @@ def test_manual_theme_with_no_duration_never_expires():
     clock = FakeClock(_dt(13, 0))
     orch, applier = _new(_cfg(), clock)
     orch.tick()
-    orch.set_theme(DARK, 0)  # 0 = until cleared, NOT "expires immediately"
+    orch.set_theme(DARK, 0)  # 0 = until cleared
     orch.tick()
     clock.set(_dt(18, 0))
     orch.tick()
@@ -178,8 +165,7 @@ def test_set_theme_rejects_an_unknown_mode():
 
 
 def test_editing_the_theme_config_reapplies_the_current_mode():
-    # Without this, changing the dark GTK theme in the GUI while already dark would
-    # appear to do nothing until the next sunrise.
+    # A theme edit takes effect at once, not at the next sunrise.
     clock = FakeClock(_dt(22, 0))
     cfg = _cfg()
     orch, applier = _new(cfg, clock)
@@ -206,10 +192,8 @@ def test_status_reports_the_theme():
 
 
 def test_status_evicts_an_expired_manual_theme_override_while_paused():
-    # _tick_theme returns at the pause guard before _theme_manual_mode(now) runs
-    # (which is where eviction normally happens), so status() must evict on its
-    # own read path too -- otherwise a paused daemon reports a stale "manual"
-    # override forever instead of the None the GUI expects. See finding 5.
+    # _tick_theme returns at the pause guard before eviction runs, so status()
+    # must evict expired overrides itself.
     clock = FakeClock(_dt(13, 0))
     orch, _applier = _new(_cfg(), clock)
     orch.tick()

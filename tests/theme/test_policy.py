@@ -67,20 +67,17 @@ def test_clock_anchors_that_wrap_past_midnight():
 
 
 def test_identical_anchors_return_dark_without_raising():
-    # Degenerate config: both arcs are empty. It must be TOTAL -- this runs inside a
-    # 2-second loop, where an exception would spam the log forever. Config validation
-    # rejects the statically detectable form of this (Task 3).
+    # Both arcs are empty. desired_mode must be total: it runs in a 2-second loop,
+    # where an exception would flood the log. Config validation rejects the
+    # statically detectable form of this.
     ctx = _ctx()
     same = ClockAnchor(12, 0)
     assert desired_mode(_dt(9, 0), ctx, same, same) == DARK
 
 
 def test_dst_spring_forward_day_still_flips_exactly_twice():
-    # 2026-03-29 is Europe/Berlin's spring-forward day: the local wall clock
-    # jumps from 02:00 straight to 03:00, so 02:xx does not exist as a local
-    # time. Anchors here straddle that missing hour (light starts 01:30, dark
-    # starts 03:30) to make sure desired_mode's clock-anchor comparisons still
-    # behave sanely across the gap instead of raising or double-flipping.
+    # 2026-03-29 is Berlin's spring-forward day (02:00 jumps to 03:00). The anchors
+    # (light 01:30, dark 03:30) straddle the missing hour: no error, no double flip.
     def dt(hour: int, minute: int) -> datetime:
         return datetime(2026, 3, 29, hour, minute, tzinfo=BERLIN)
 

@@ -1,8 +1,7 @@
-"""D-Bus control service for the Duskcurve daemon.
+"""D-Bus control service for the daemon.
 
-SYSTEM module: handler logic in `DaemonService` is plain str/bool/int and is
-fully unit-testable without a bus. Only `INTERFACE_XML` and
-`export_on_connection` touch `gi`/`Gio`.
+`DaemonService` handlers take plain str/bool/int, so they are testable without a bus;
+only `export_on_connection` touches `gi`.
 """
 
 import json

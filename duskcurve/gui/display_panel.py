@@ -1,33 +1,9 @@
-"""The Displays view -- per-monitor controls.
+"""The Displays view: per-monitor controls, one `Adw.PreferencesGroup` per connector.
 
-Renders one `Adw.PreferencesGroup` per connector reported in
-`AppState.status.displays`. This module is gi-dependent (unlike the pure
-`state`/`editing`/`protocol`/`geometry` modules it calls into) and is
-imported only by widget code, never by `duskcurve.gui.__init__` or a pure
-module.
-
-Groups are rebuilt only when the *set* of connectors changes; a routine
-status poll instead updates the existing widgets in place, matching
-`schedule_view.py`. The same two guards recur here, but per-connector since
-each display has independent sliders and entries:
-
-- **Gesture guard**: while a display's value spin row is being edited,
-  `_DisplayGroup.render()` skips pushing a fresh value into that specific
-  widget -- otherwise the periodic status poll (driven by `AppState`
-  subscribers) would fight the user's in-progress interaction. The
-  manual-temperature scale carries the equivalent guard (plus its own dirty
-  tracking) inside `ManualTempScale`, which `schedule_view.py` shares.
-- **Re-entrancy guard**: `DisplayView._render()` sets `self._rendering =
-  True` for the duration of pushing store values into every group's
-  widgets, and every widget's own `notify`/`clicked` handler checks that
-  flag first and returns immediately if it is set. Since `_render()` itself
-  never calls `AppState.apply_config` or a `DaemonClient` method, and the
-  guarded handlers are the *only* places that do, a programmatic push can
-  never be mistaken for a user edit and loop back into another outbound
-  call. `AppState.set_error()` notifies subscribers too, so a failing
-  D-Bus call inside a handler re-enters `_render()` -- the flag is set for
-  the whole handler body (via try/finally) precisely so that path is also
-  covered.
+Groups are rebuilt only when the set of connectors changes; a status poll updates the existing
+widgets in place. As in `schedule_view`, `_rendering` is set while store values are pushed into
+widgets and every outbound handler returns early when it is set. It is held for the whole
+handler body because `AppState.set_error()` notifies subscribers and so re-enters `_render()`.
 """
 
 import dataclasses
@@ -58,10 +34,8 @@ _KELVIN_KINDS = ("warm_cap", "fixed")
 _OFFSET_MIN = -200.0
 _OFFSET_MAX = 200.0
 
-# "warm_cap" reads as a ceiling but is a floor on Kelvin: warmer means *lower*
-# K, so capping warmth is a max(). That inversion has misled readers of the
-# code and of this panel, so the row says which direction it clamps rather
-# than leaving the name to carry it.
+# "warm_cap" caps warmth, which is a floor on Kelvin (warmer means lower K), so the row
+# subtitle states the direction.
 _VALUE_SUBTITLES = {
     "warm_cap": (
         "Never warmer than this. The display follows the schedule until it "
@@ -76,9 +50,7 @@ _VALUE_SUBTITLES = {
 
 
 class _DisplayGroup:
-    """Widgets and per-connector guard state for one display's
-    `Adw.PreferencesGroup`. Owned by a `DisplayView`, which it reaches back
-    into for the store, the client, and the shared re-entrancy flag."""
+    """Widgets and per-connector guard state for one display's group, owned by a `DisplayView`."""
 
     def __init__(self, connector: str, view: "DisplayView") -> None:
         self.connector = connector
@@ -111,8 +83,7 @@ class _DisplayGroup:
         self.value_row.add_controller(value_focus)
         self.group.add(self.value_row)
 
-        # A control, not a readout -- never written from status, so no
-        # re-entrancy guard is needed (unlike the scale below).
+        # Never written from status, so it needs no re-entrancy guard.
         self.duration_row = Adw.ComboRow(
             title="Manual duration", model=Gtk.StringList.new(list(DURATION_LABELS))
         )
@@ -205,11 +176,8 @@ class _DisplayGroup:
         if new_kind == current.override_kind:
             return
         default_value = self._default_value_for(new_kind, current, cfg)
-        # The reshape must be inside the guard, not before it: changing the
-        # adjustment's bounds clamps the current value and emits
-        # notify::value, which would otherwise reach _on_value_changed and
-        # send a second, wrong SetConfig carrying the *old* override_kind
-        # with the newly clamped number.
+        # Reshape inside the guard: changing the bounds clamps the value and emits
+        # notify::value, which would otherwise send a SetConfig with the old kind.
         self._view._rendering = True
         try:
             self._shape_value_row(new_kind, cfg)
@@ -220,9 +188,8 @@ class _DisplayGroup:
 
     @staticmethod
     def _default_value_for(new_kind: str, current: DisplayConfig, cfg: Config) -> float:
-        # The same raw number means different things per kind (kelvin vs. a
-        # mired delta), so switching kinds must not carry the old number
-        # across unchanged -- only within the same unit family.
+        # The same number means different things per kind (kelvin vs. a mired delta), so only
+        # carry it across within the same unit family.
         if new_kind in _KELVIN_KINDS:
             if current.override_kind in _KELVIN_KINDS:
                 return current.override_value
@@ -254,8 +221,7 @@ class _DisplayGroup:
     # -- manual temperature -------------------------------------------------
 
     def _on_duration_changed(self, _row: Adw.ComboRow, _pspec: GObject.ParamSpec) -> None:
-        # Re-arm an override already running on this display -- see the twin
-        # in schedule_view. Changing only the duration otherwise sends nothing.
+        # Re-arm a running override with the new duration, as in schedule_view.
         if self._view._rendering:
             return
         status = self._view._state.status
@@ -288,9 +254,6 @@ class DisplayView(Gtk.Box):
         self._state = state
         self._client = client
 
-        # Re-entrancy guard: True only while _render() is pushing values into
-        # widgets. Every outbound handler on every _DisplayGroup checks this
-        # first.
         self._rendering = False
         self._groups: dict[str, _DisplayGroup] = {}
 

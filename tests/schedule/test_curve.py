@@ -97,13 +97,9 @@ def test_wrap_around_overnight_segment():
 
 
 def test_list_order_defines_cycle_even_when_event_anchor_inverts_absolute_time():
-    # List order is the source of truth for the cyclic walk. Keypoint 3
-    # (bedtime, resolving to 21:30) lands chronologically *before* keypoint 2
-    # (sunset+60, resolving to 22:00) -- an inversion that would scramble a
-    # sort-by-resolved-minute implementation (it would reorder 21:30 ahead of
-    # 22:00, producing a spurious bump back up to 3400 after already reaching
-    # 2700). The new forward-monotonic-cycle evaluate must instead clamp the
-    # inverted keypoint to a zero-length segment and keep descending.
+    # List order defines the walk. Bedtime (21:30) resolves before sunset+60 (22:00);
+    # the inverted keypoint is clamped to a zero-length segment, so the curve
+    # keeps descending instead of bumping back up to 3400.
     ctx = DayContext(
         sunrise=_dt(6, 0),
         sunset=_dt(21, 0),
@@ -126,9 +122,7 @@ def test_list_order_defines_cycle_even_when_event_anchor_inverts_absolute_time()
     # Endpoints still resolve to their own kelvin.
     assert curve.evaluate(_dt(20, 0), ctx) == pytest.approx(6500)
     assert curve.evaluate(_dt(22, 30), ctx) == pytest.approx(2700)
-    # By 22:00 (the clamped/collapsed keypoints' shared instant) we've
-    # already reached the destination temperature -- not a garbled
-    # in-between value from a re-sorted segment.
+    # The clamped keypoints share 22:00, which is already at the destination.
     assert curve.evaluate(_dt(22, 0), ctx) == pytest.approx(2700)
 
 

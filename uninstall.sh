@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Duskcurve uninstaller. Reverses install.sh in the opposite order.
-# Every step tolerates its target already being gone: a partial install is
-# the main reason to run this.
+# Duskcurve uninstaller: reverses install.sh in the opposite order.
+# Every step tolerates its target being gone, as after a partial install.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
@@ -39,8 +38,7 @@ if [ -f "$DUSKCURVE_UNIT_DIR/$UNIT_NAME" ]; then
 fi
 
 # --- 2. reset the ramps ------------------------------------------------------
-# Before step 6 deletes the venv -- this is the only reason it is this early.
-# Best-effort: displays may have changed since install.
+# Must run before step 6 deletes the venv. Best-effort: displays may have changed.
 if [ -x "$DUSKCURVE_VENV/bin/duskcurve-apply" ]; then
     if "$DUSKCURVE_VENV/bin/duskcurve-apply" --temp "$NEUTRAL_KELVIN" >/dev/null 2>&1; then
         log "Reset the displays to ${NEUTRAL_KELVIN}K"

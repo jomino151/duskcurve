@@ -1,48 +1,12 @@
-"""The Rules view -- app/window rules that override the schedule.
+"""The Rules view: app and window rules that override the schedule.
 
-Wraps a `Gtk.ListBox` of the config's `rules` tuple, an add/edit
-`Adw.Dialog`, and an `Adw.Toast`-based undo for deletes. This module is
-gi-dependent (unlike the pure `state`/`editing`/`protocol`/`geometry`
-modules it calls into) and is imported only by widget code, never by
-`duskcurve.gui.__init__` or a pure module.
+Order is semantics: `resolve_rules` is first-match-wins, so the list shows each rule's position,
+offers move up/down, and marks the rule currently winning for the focused window.
 
-Order is semantics, not presentation: `resolve_rules` (the same function
-the daemon's orchestrator calls every tick) is first-match-wins, so the
-position of a rule in the tuple decides whether it ever fires. The list
-shows each rule's 1-based position, offers move-up/move-down (`move_rule`),
-and marks whichever rule is currently winning for the focused window so
-the ordering's effect is visible rather than implicit.
-
-Two guards recur here, matching `schedule_view.py` and `display_panel.py`:
-
-- **Gesture guard**: while the add/edit `Adw.Dialog` is open, `_render()`
-  returns immediately without touching the list -- the dialog is modal, so
-  nothing the user can do reaches the underlying rows anyway, but a status
-  poll arriving mid-edit must not tear down the list under the dialog's
-  feet (or, more subtly, reorder rows whose 0-based index the dialog has
-  already captured as the one it is editing).
-- **Re-entrancy guard**: `_render()` sets `self._rendering = True` for the
-  duration of syncing the list, and every button's `clicked` handler
-  checks that flag first and returns immediately if it is set. `_render()`
-  itself never calls `AppState.apply_config` -- the guarded handlers are
-  the only places that do -- so a rebuild can never be mistaken for a user
-  action and loop back into another outbound call. `AppState.set_error()`
-  notifies subscribers too, so a failed apply from inside a handler
-  re-enters `_render()`; the flag covers the whole handler body via
-  try/finally precisely so that path is also guarded.
-
-Rows are persistent: a status poll updates them in place rather than
-rebuilding the `Gtk.ListBox`, so keyboard focus and hover state survive it.
-That makes a row's index a snapshot rather than a fact, so every row handler
-goes through `_live_index`, which re-reads the config and refuses to act
-unless the rule at the captured index is still the one the row represents.
-
-Match highlighting is best-effort: if `resolve_rules` raises (a
-malformed rule already on disk, from an older or hand-edited config) the
-list still renders, just without a highlighted winner -- this is a
-render-time computation, not a user action, so failures are logged and
-swallowed rather than routed to `AppState.set_error`, which would notify
-subscribers and re-enter `_render()` on every poll.
+`_rendering` is set while the list is synced and held for whole handler bodies, because
+`AppState.set_error()` re-enters `_render()`. `_render()` does nothing while the modal add/edit
+dialog is open, so a poll cannot reorder rows under the index the dialog captured. Rows persist
+across polls (keeping focus and hover), so every row handler goes through `_live_index`.
 """
 
 import logging
@@ -89,10 +53,8 @@ _GLOB_HINT = (
 class _RuleRow:
     """One persistent `Adw.ActionRow` in the list.
 
-    Rows outlive a status poll (see `RulesView._render`), so a row's index is
-    not a constant: `update()` re-stamps both the index and the `Rule` the row
-    currently stands for, and every handler passes `self` rather than a
-    captured integer so it can verify against the live config before acting.
+    Rows outlive polls, so `update()` re-stamps the index and `Rule` the row stands for, and
+    handlers verify them against the live config.
     """
 
     def __init__(self, view: "RulesView") -> None:
@@ -180,14 +142,8 @@ class _RuleDialog(Adw.Dialog):
         page.set_margin_start(12)
         page.set_margin_end(12)
 
-        # The glob gets its own group purely so the hint below can render:
-        # Adw.EntryRow is a PreferencesRow, not an ActionRow, so it has no
-        # subtitle of its own and a group description is the only place to put
-        # per-field text. Two things bite here and neither is guessable from
-        # the field alone -- matching does not fold case on Linux, and the app
-        # id is whichever of three unrelated naming schemes the extension found
-        # first (see extension.js) -- so point at the command that prints the
-        # exact string rather than letting people guess it.
+        # Own group so the hint can render: Adw.EntryRow has no subtitle, so a group
+        # description is the only place for per-field text.
         match_group = Adw.PreferencesGroup(description=_GLOB_HINT)
 
         self._glob_row = Adw.EntryRow(title="App ID glob (empty = any app)")
@@ -303,12 +259,9 @@ class RulesView(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self._state = state
 
-        # Re-entrancy guard: True only while _render() is rebuilding the
-        # list. Every button handler below checks this first.
         self._rendering = False
-        # Gesture guard: True while the add/edit dialog is open.
         self._dialog_open = False
-        # Persistent rows, one per rule, in config order. See _sync_rows.
+        # One persistent row per rule, in config order.
         self._rows: list[_RuleRow] = []
 
         self.set_margin_top(12)
@@ -371,13 +324,8 @@ class RulesView(Gtk.Box):
     def _sync_rows(self, cfg: Config) -> None:
         """Bring the list in line with the config without tearing it down.
 
-        A status poll fires every `tick_interval_seconds`; rebuilding the
-        ListBox each time would destroy keyboard focus and hover state inside
-        it, making the list unusable with the keyboard. So rows are only
-        created/removed when the *number* of rules changes -- matching
-        `display_panel._render`'s connector-set test -- and everything that can
-        change without that (position labels, match highlight, button
-        sensitivity) is written into the existing rows in place.
+        Rows are added or removed only when the number of rules changes; everything else is
+        written in place, so keyboard focus and hover survive each poll.
         """
         status = self._state.status
         connectors = tuple(d.connector for d in status.displays) if status is not None else ()
@@ -386,10 +334,8 @@ class RulesView(Gtk.Box):
         try:
             winners = _winning_indices(cfg.rules, window, connectors, _day_kelvin(cfg), unfocused)
         except Exception:
-            # Best-effort highlighting only; a malformed rule already on disk
-            # must not prevent the list from rendering, and must not call
-            # AppState.set_error() here -- that would notify subscribers and
-            # re-enter _render() on every subsequent poll.
+            # Highlighting is best-effort: a malformed rule on disk must not stop the list
+            # rendering, and set_error() here would re-enter _render() on every poll.
             log.exception("could not resolve rules for match highlighting")
             winners = {}
 
@@ -409,11 +355,8 @@ class RulesView(Gtk.Box):
     def _live_index(self, row: _RuleRow) -> int | None:
         """The row's index, or None if the row no longer describes the config.
 
-        Rows persist across polls now, and `_render` returns early while the
-        edit dialog is open, so a row can outlive the rule it was stamped with
-        (an external TOML edit, or another action in this view). Every handler
-        must re-read the live config and confirm the rule is still the one the
-        row represents before acting on its index.
+        A row can outlive the rule it was stamped with (external TOML edit, or another action),
+        so handlers re-read the config and confirm the rule at the index is still the row's.
         """
         cfg = self._state.config
         if cfg is None or row.rule is None:
@@ -536,19 +479,15 @@ class RulesView(Gtk.Box):
         self._toast_overlay.add_toast(toast)
 
     def _on_undo_delete(self, _toast: Adw.Toast, deleted_rule: Rule, index: int) -> None:
-        # Splice the deleted rule back into whatever the rule tuple is *now*,
-        # not the pre-delete snapshot -- something else (an external TOML
-        # edit the daemon picked up, another action in this view) may have
-        # changed it since the delete. Restoring the snapshot wholesale would
-        # silently discard that.
+        # Splice into the current rules, not a pre-delete snapshot, which would discard
+        # any change made since.
         cfg = self._state.config
         if cfg is None:
             return
         current = cfg.rules
         target = min(index, len(current))
         if target < len(current) and current[target] == deleted_rule:
-            # Already present at the right spot -- undo already satisfied
-            # (e.g. a double click on the toast button), do not duplicate.
+            # Already restored (e.g. a double click on the toast button).
             return
         new_rules = (*current[:target], deleted_rule, *current[target:])
         try:

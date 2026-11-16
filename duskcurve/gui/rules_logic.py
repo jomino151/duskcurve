@@ -1,26 +1,14 @@
-"""Pure decision logic behind the Rules page.
+"""Decision logic behind the Rules page.
 
-PURE module: stdlib + duskcurve.daemon.config / duskcurve.daemon.rules /
-duskcurve.gui.protocol only. **No gi import, directly or transitively.**
-
-This is not stylistic. `duskcurve.gui.rules_panel` imports Gtk/Adw, and merely
-importing Adw opens a connection to the real session bus. Gio caches that
-connection process-wide, so a test module that imports `rules_panel` at
-import time -- which pytest does at COLLECTION time, before any test runs --
-defeats `Gio.TestDBus.up()` in `tests/gui/test_client.py` and silently
-points those tests at the user's actually-running daemon. Keeping the pure
-functions here lets tests import them without dragging in Gtk.
-`tests/gui/test_no_gi_import.py` enforces it.
+No gi import, directly or transitively: importing Adw opens the real session bus, and Gio
+caches that connection process-wide, which would defeat a test D-Bus.
 """
 
 from duskcurve.daemon.config import Config
 from duskcurve.daemon.rules import Rule, WindowState, resolve_rules
 from duskcurve.gui.protocol import Status
 
-# Only used when there is no config to read max_kelvin from (the daemon has
-# not answered yet). The daemon resolves force_day with
-# day_kelvin=config.max_kelvin -- see Orchestrator.tick/status -- so this
-# constant must never be preferred over a live config value.
+# Fallback for before the daemon has answered; the daemon itself uses config.max_kelvin.
 _DEFAULT_DAY_KELVIN = 6500.0
 
 
@@ -97,9 +85,7 @@ def _window_states(
 def _rule_validation_error(
     app_glob: str | None, fullscreen: bool, unfocused: bool, action: str, kelvin: int
 ) -> str | None:
-    """Mirror duskcurve.daemon.config._validate_rule's requirements, so a rule
-    that would be rejected by the daemon (or blow up resolve_rules) is
-    refused here instead."""
+    """Mirror daemon.config._validate_rule so the daemon never sees a rule it would reject."""
     if app_glob is None and not fullscreen:
         return (
             "Set an app glob and/or enable “fullscreen only” -- otherwise this "
@@ -121,29 +107,19 @@ def _winning_indices(
 ) -> dict[str, int]:
     """Map each connector to the index of the rule currently controlling it.
 
-    Evaluated prefix-wise through `resolve_rules` -- the same function the
-    daemon uses -- so the two cannot disagree: the winner for a connector is
-    the first rule that, evaluated on its own prefix, produces a non-"none"
-    action for it. Connectors with no matching rule (or no focused window)
-    are absent from the result.
+    Evaluated prefix-wise through the daemon's own `resolve_rules`: the winner is the first
+    rule whose prefix yields a non-"none" action. Unmatched connectors are absent.
     """
     winners: dict[str, int] = {}
     if (window is None and not unfocused) or not connectors:
         return winners
 
-    # TWO passes, in the engine's own precedence order -- not one pass over
-    # prefixes of the whole thing. Prefix attribution is only sound while a
-    # prefix result for a connector is either "none" or the final answer, and
-    # that holds for the focused window (plain first-match-wins) but NOT once
-    # unfocused windows can fill displays: an unfocused rule early in the list
-    # claims a display inside its own short prefix, while in the full rule set
-    # a later focused rule claims that display first and the unfocused rule
-    # never gets it. Attributing the badge to the early rule would make the
-    # panel disagree with the daemon -- the one thing this module must not do.
+    # Two passes in the engine's precedence order. Prefix attribution is sound for the
+    # focused window (first match wins) but not once unfocused windows fill displays: an
+    # early unfocused rule wins its short prefix yet loses to a later focused rule overall.
     remaining = set(connectors)
 
-    # Pass 1: the focused window, resolved against the FULL rule set first, so
-    # we learn which connectors it really owns before attributing any of them.
+    # Pass 1: resolve the focused window against the full rule set to find what it owns.
     focused_actions = resolve_rules(window, rules, connectors, day_kelvin)
     focused_owned = {c for c in remaining if focused_actions[c].kind != "none"}
     for i in range(len(rules)):
@@ -156,8 +132,7 @@ def _winning_indices(
                 focused_owned.discard(connector)
                 remaining.discard(connector)
 
-    # Pass 2: whatever the focused window left free is exactly what unfocused
-    # windows may fill, so prefix scanning is sound again over that subset.
+    # Pass 2: connectors left free are what unfocused windows may fill.
     for i in range(len(rules)):
         if not remaining:
             break

@@ -104,9 +104,8 @@ def test_fork_to_custom_is_idempotent():
 
 
 def test_fork_to_custom_restores_a_parked_fork_instead_of_overwriting_it():
-    # M6 final review, C1: after switching the mode dropdown away from custom,
-    # custom_keypoints stay in the config (parked). Selecting Custom again must
-    # bring the user's own curve back, not the built-in mode's.
+    # After switching the mode away from custom, custom_keypoints stay parked in
+    # the config; selecting Custom again must restore the user's own curve.
     parked = (KeypointConfig("08:00", 6500.0), KeypointConfig("21:15", 2100.0))
     cfg = dataclasses.replace(default_config(), mode="classic", custom_keypoints=parked)
     forked = fork_to_custom(cfg)
@@ -148,7 +147,7 @@ def test_fork_to_custom_preserves_every_other_setting():
     assert forked.displays == cfg.displays
 
 
-# Finding 1: validation of clock anchor strings
+# Validation of clock anchor strings
 @pytest.mark.parametrize(
     "bad_anchor",
     [
@@ -178,7 +177,7 @@ def test_config_to_keypoint_accepts_valid_clock_boundaries():
     assert config_to_keypoint(kc_max).anchor == ClockAnchor(23, 59)
 
 
-# Finding 2: round-trip with mixed anchor types (clock + event)
+# Round-trip with mixed anchor types (clock + event)
 def test_mixed_anchor_types_round_trip_through_serialization():
     # This test exercises clock anchors in the serialization round-trip,
     # which the built-in modes (all event-anchored) do not cover.
@@ -280,8 +279,8 @@ def test_insert_wraps_1440_to_midnight():
 
 
 def test_mutations_never_reorder_an_inverted_walk():
-    # A walk whose resolved times invert is legal and must survive editing
-    # unchanged in ORDER -- sorting it would interleave phases of the cycle.
+    # A walk whose resolved times invert is legal; editing must keep its order,
+    # since sorting would interleave phases of the cycle.
     inverted = (
         KeypointConfig("wake", 6500.0),
         KeypointConfig("23:00", 2700.0),
@@ -411,7 +410,7 @@ def test_edited_rules_survive_the_daemon_validator():
     assert load_config(dump_config(cfg)).rules == RULES
 
 
-# -- rules_panel pure-function tests -----------------------------------------
+# -- rules_panel helper tests ---------------------------------------------
 
 
 def test_summarize_mentions_unfocused():
@@ -491,14 +490,9 @@ def test_window_states_handles_no_status():
 
 
 def test_winning_indices_credits_the_focused_rule_that_actually_wins():
-    # Regression: the panel attributes each display to a rule by evaluating
-    # rule PREFIXES. That is sound for focused-only resolution (first match
-    # wins, so a prefix result is either "none" or the final answer), but it
-    # breaks once unfocused windows can fill displays: an unfocused rule early
-    # in the list claims a display inside its own short prefix, even though in
-    # the full rule set a LATER focused rule claims that display first and the
-    # unfocused rule never gets it. The badge would then point at the wrong
-    # rule -- the one thing this module's docstring promises cannot happen.
+    # The panel attributes a display to a rule by evaluating rule prefixes. An
+    # early unfocused rule claims the display within its own prefix, but in the
+    # full rule set a later focused rule wins it; the badge must name that rule.
     unfocused_rule = Rule(
         action="disable", match_fullscreen=True, match_unfocused=True, scope="window_monitor"
     )

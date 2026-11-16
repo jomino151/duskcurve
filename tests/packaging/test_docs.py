@@ -17,22 +17,19 @@ def test_readme_documents_every_flag():
 
 
 def test_readme_no_longer_teaches_the_manual_procedure():
-    """Two competing sets of instructions is how the double-install the
-    installer warns about happens in the first place."""
+    """Two competing sets of instructions would invite the double install."""
     assert "--break-system-packages" not in README
     assert "ln -s" not in README
 
 
 def test_readme_documents_the_no_record_night_light_case():
-    """With install.sh no longer fabricating a record on a failed read, the
-    no-record case is reachable in normal use, not just theoretically."""
+    """install.sh records nothing on a failed read, so the no-record case is reachable."""
     lowered = README.lower()
     assert "leaves night light alone" in lowered or "never successfully" in lowered
 
 
 def test_readme_still_warns_about_the_wayland_logout():
-    """Correct installs look broken without it -- the extension does not load
-    until the session restarts, and Alt+F2 r does not work on Wayland."""
+    """The extension only loads after a new session, and Alt+F2 r does not work on Wayland."""
     lowered = README.lower()
     assert "log out" in lowered
     assert "wayland" in lowered

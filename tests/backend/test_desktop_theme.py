@@ -41,8 +41,7 @@ def test_every_element_writes_its_exact_schema_and_key():
 
 
 def test_wallpaper_writes_both_uri_keys():
-    # Both, always: GNOME picks between them using color-scheme, which we are also
-    # setting, so writing only one makes the wallpaper lag the theme by one switch.
+    # GNOME picks a URI key by color-scheme, so writing only one lags a switch.
     w = FakeSettingsWriter()
     _applier(w).apply(ThemeVariant(wallpaper="/home/u/night.jpg"))
     assert w.written[(BACKGROUND_SCHEMA, "picture-uri")] == "file:///home/u/night.jpg"
@@ -90,9 +89,7 @@ def test_relative_wallpaper_path_is_skipped_not_raised():
 
 
 def test_missing_key_skips_only_that_element_and_never_writes_it():
-    # A schema that exists but lacks the specific key -- e.g. a pre-GNOME-42
-    # gsettings-desktop-schemas missing 'color-scheme'. Distinct from a missing
-    # SCHEMA (above): here has_schema returns True, only the key write fails.
+    # The schema exists but lacks the key (e.g. no 'color-scheme' on older GNOME).
     w = FakeSettingsWriter(missing_keys={(INTERFACE_SCHEMA, "color-scheme")})
     skipped = _applier(w).apply(FULL)
     assert skipped == ["color_scheme"]
@@ -101,10 +98,7 @@ def test_missing_key_skips_only_that_element_and_never_writes_it():
 
 
 class _RaisingWriter:
-    """A writer whose has_schema raises for one schema, to simulate a broken
-    gi/dconf environment (e.g. Gio.SettingsSchemaSource.get_default() is None
-    on a system with no compiled schemas at all -- AttributeError on .lookup).
-    """
+    """Writer whose has_schema raises for one schema, simulating a broken gi/dconf setup."""
 
     def __init__(self, raising_schema: str) -> None:
         self._raising_schema = raising_schema
@@ -150,21 +144,15 @@ def test_gio_writer_reports_a_bogus_schema_as_absent():
     w = GioSettingsWriter()
     assert w.has_schema(INTERFACE_SCHEMA) is True
     assert w.has_schema("org.nonexistent.bogus") is False
-    # And set_string on it must return False rather than constructing (and aborting).
+    # set_string must return False rather than construct Gio.Settings (which aborts).
     assert w.set_string("org.nonexistent.bogus", "whatever", "x") is False
 
 
 def test_gio_writer_has_key_guard_prevents_process_abort_on_missing_key():
-    """Test that has_key check guards against process abort when calling set_string
-    with a key that doesn't exist in an otherwise valid schema.
+    """A missing key makes set_string return False instead of aborting the process.
 
-    This test runs in a subprocess because without the has_key guard, the call to
-    Gio.Settings.set_string() on a nonexistent key calls g_error() and aborts the
-    process with SIGTRAP (exit 133). We run in a subprocess so that if the guard
-    is ever removed, the test fails cleanly instead of crashing the entire pytest run.
-
-    With the guard present: subprocess exits 0 and returns False.
-    Without the guard: subprocess exits 133 (process abort).
+    Runs in a subprocess because Gio.Settings.set_string() on a missing key calls
+    g_error() and kills the process with SIGTRAP (exit 133).
     """
     pytest.importorskip("gi.repository.Gio")
 
@@ -182,9 +170,6 @@ sys.exit(0 if result is False else 1)
         text=True,
     )
 
-    # The subprocess must exit 0, indicating the has_key guard returned False
-    # and prevented the call from aborting. Exit 133 would mean the guard is gone
-    # and the daemon would be killed by g_error().
     msg = (
         f"subprocess exited {proc.returncode} (expected 0, not 133/process-abort). "
         f"stderr: {proc.stderr}"

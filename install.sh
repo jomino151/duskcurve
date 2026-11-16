@@ -45,10 +45,8 @@ case ":$PATH:" in
             "duskcurve-gui command and the daemon unit will not resolve." ;;
 esac
 
-# A second theme switcher will fight Duskcurve's [theme] feature: both write the
-# same dconf keys, and the visible result is a theme that flips back and forth.
-# Name-specific and best-effort -- detecting arbitrary third-party switchers is
-# not attempted.
+# A second theme switcher writing the same dconf keys would flip the theme back
+# and forth against [theme]. Best-effort: only this one is detected.
 _other_switcher="$DUSKCURVE_DATA_HOME/systemd/user/auto-darkmode-switcher.service"
 if [ -e "$_other_switcher" ]; then
     warn "auto-darkmode-switcher is installed and will fight Duskcurve's theme switching."
@@ -63,9 +61,7 @@ if "$DUSKCURVE_PYTHON" -m pip show duskcurve >/dev/null 2>&1; then
          "this one. Remove it with: $DUSKCURVE_PYTHON -m pip uninstall duskcurve --break-system-packages"
 fi
 
-# Scan all console-script targets before doing any real work: creating the
-# venv and running pip install takes 20+ seconds, and none of it is needed
-# if we are just going to refuse to link over a real file at the end.
+# Check console-script targets before creating the (slow) venv, so we refuse early.
 mkdir -p "$DUSKCURVE_BIN_DIR"
 for script in "${CONSOLE_SCRIPTS[@]}"; do
     target="$DUSKCURVE_BIN_DIR/$script"
@@ -82,9 +78,8 @@ for script in "${CONSOLE_SCRIPTS[@]}"; do
 done
 
 # --- 2. the cairo bridge -----------------------------------------------------
-# Separate package from python3-cairo, and Ubuntu's python3-gi does not pull it
-# in. Without it the curve editor -- the centrepiece of the Schedule view --
-# degrades to a status page while everything else looks fine.
+# python3-gi-cairo is a separate package that python3-gi does not pull in; without
+# it the curve editor degrades to a status page.
 if ! "$DUSKCURVE_PYTHON" -c 'import gi; gi.require_foreign("cairo")' 2>/dev/null; then
     log "The curve editor needs the python3-gi-cairo system package, which is missing."
     printf '    Install it now with sudo? [y/N] '
@@ -123,22 +118,19 @@ else
 fi
 
 # --- 4. console scripts ------------------------------------------------------
-# The collision pre-scan already ran during preflight, before the venv was
-# created; only the linking remains.
+# Collisions were checked in preflight; only the linking remains.
 mkdir -p "$DUSKCURVE_BIN_DIR"
 for script in "${CONSOLE_SCRIPTS[@]}"; do
     ln -sfn "$DUSKCURVE_VENV/bin/$script" "$DUSKCURVE_BIN_DIR/$script"
 done
 log "Linked ${CONSOLE_SCRIPTS[*]} into $DUSKCURVE_BIN_DIR"
 
-# Diagnostic only -- nothing reads this back. Recorded so a user (or a bug
-# report) can tell a --dev install from a copy.
+# Diagnostic only: nothing reads this back.
 state_set install_mode "$INSTALL_MODE"
 
 # --- 5. record Night Light ---------------------------------------------------
-# Must happen before the daemon is ever started: the daemon turns Night Light
-# off as its first act, so recording afterwards would capture Duskcurve's own
-# doing. On a re-install an existing value is kept for the same reason.
+# Must run before the daemon starts: it turns Night Light off first thing, so a
+# later read would record its own change. A re-install keeps the existing value.
 if ! state_get night_light_was_enabled >/dev/null; then
     if current="$(gsettings get "$NIGHT_LIGHT_SCHEMA" "$NIGHT_LIGHT_KEY" 2>/dev/null)"; then
         state_set night_light_was_enabled "$current"
@@ -161,13 +153,9 @@ log "Installed the icon and desktop entry"
 # --- 7. extension ------------------------------------------------------------
 mkdir -p "$DUSKCURVE_EXT_DIR"
 ext_target="$DUSKCURVE_EXT_DIR/$EXT_UUID"
-# Replace the target only when the KIND of thing there is wrong -- a symlink
-# where we want a copied directory, or the reverse. Switching between --dev and
-# the default must not leave a copy shadowing the symlink the user asked for;
-# but removing a target that is already the right kind would pull the directory
-# out from under a running GNOME Shell, which disables the extension and needs
-# a logout plus a manual re-enable to undo. Keying off what is on disk rather
-# than the recorded install_mode also self-heals a missing state file.
+# Replace the target only when its kind is wrong (symlink vs copied directory).
+# Removing a correct one would pull it from under a running Shell and disable the
+# extension; checking the disk also self-heals a missing state file.
 if [ "$INSTALL_MODE" = "dev" ]; then
     if [ -e "$ext_target" ] && [ ! -L "$ext_target" ]; then
         rm -rf "$ext_target"
@@ -190,18 +178,15 @@ mkdir -p "$DUSKCURVE_UNIT_DIR"
 install -m 0644 "$REPO_DIR/data/$UNIT_NAME" "$DUSKCURVE_UNIT_DIR/$UNIT_NAME"
 systemctl --user daemon-reload || warn "systemctl daemon-reload failed; the unit may not" \
     "be picked up until you log out and back in."
-# Capture this before `enable --now`, which would make a stopped unit look as
-# though it had been running all along.
+# Captured before `enable --now`, which would make a stopped unit look active.
 daemon_was_active=0
 if systemctl --user is-active --quiet "$UNIT_NAME" 2>/dev/null; then
     daemon_was_active=1
 fi
 if [ "$START_SERVICE" = "1" ]; then
     if systemctl --user enable --now "$UNIT_NAME"; then
-        # `enable --now` starts a stopped unit but never restarts a running
-        # one, so on an upgrade the old process would keep serving the old code
-        # until the next reboot. Only restart what was already up: doing it
-        # unconditionally would reset the ramps for nothing on a first install.
+        # `enable --now` never restarts a running unit, so restart on upgrade, but only if
+        # it was already up: a first install should not reset the ramps.
         if [ "$daemon_was_active" = "1" ]; then
             systemctl --user restart "$UNIT_NAME" \
                 || warn "could not restart the daemon, so it is still running the previous" \

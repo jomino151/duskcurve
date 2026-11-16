@@ -1,13 +1,9 @@
-"""Default colour-temperature curve and named schedule modes.
-
-Pure stdlib + duskcurve.schedule.curve — no gi/D-Bus/GTK.
-"""
+"""Default colour-temperature curve and the named schedule modes."""
 
 from duskcurve.schedule.curve import Curve, EventAnchor, Keypoint
 
-# Reduce Eyestrain-style 6-keypoint curve (spec table, §6):
-# wake -> plateau at 6500K, ease down around sunset to 3400K, hold, ease
-# further down before bedtime to 2700K, hold overnight until just before wake.
+# 6500K until an hour before sunset, easing to 3400K an hour after it, then
+# to 2700K by bedtime, held overnight until just before wake.
 DEFAULT_CURVE = Curve(
     [
         Keypoint(EventAnchor("wake", 0), 6500),
@@ -19,9 +15,8 @@ DEFAULT_CURVE = Curve(
     ]
 )
 
-# Later/warmer wind-down: keep the 6500K day plateau longer, hold at a
-# mid-warm 3800K through the evening, and only reach 2700K an hour after
-# bedtime. Warms back up shortly before wake.
+# Later wind-down: 6500K until after sunset, 3800K through the evening, 2700K
+# only an hour after bedtime.
 WORKING_LATE_CURVE = Curve(
     [
         Keypoint(EventAnchor("wake", 0), 6500),
@@ -33,11 +28,8 @@ WORKING_LATE_CURVE = Curve(
     ]
 )
 
-# Classic two-level curve: 6500K during the day, a single eased
-# drop to 2700K after sunset, held flat overnight, then a quick eased jump
-# back to 6500K right at wake. The wake-1 keypoint pins the overnight
-# segment at a constant 2700K so it's a true hold rather than a gradual
-# ramp all night toward the wake keypoint.
+# Two levels: 6500K by day, one eased drop to 2700K after sunset. The wake-1
+# keypoint holds the night flat instead of ramping towards wake.
 CLASSIC_CURVE = Curve(
     [
         Keypoint(EventAnchor("wake", 0), 6500),

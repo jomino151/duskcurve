@@ -1,16 +1,7 @@
-"""Lightweight smoke test for the live D-Bus dispatch used by duskcurve.daemon.main.
+"""Smoke tests for live D-Bus dispatch: a real connection with DaemonService exported.
 
-Task 4.4's reviewer flagged that `service.export_on_connection`'s live dispatch
-(GLib.Variant pack/unpack, ConfigError -> D-Bus error mapping) is untested by
-the pure `DaemonService` unit tests in test_service.py, which never touch a
-real bus. This test exercises exactly that path: a real GDBusConnection with
-DaemonService exported, called over the wire.
-
-Uses an isolated private bus via Gio.TestDBus when available (no dependency on
-or interference with any real session bus / real duskcurve daemon). Falls back
-to the real session bus only if TestDBus can't come up and
-$DBUS_SESSION_BUS_ADDRESS is set. Skips cleanly (not a failure) if neither is
-reachable in this environment.
+Covers Variant packing and ConfigError-to-D-Bus-error mapping, which test_service.py never
+touches. Uses a private Gio.TestDBus bus, falling back to the session bus, else skips.
 """
 
 import os
@@ -80,13 +71,9 @@ def _own_name_and_wait(conn: "Gio.DBusConnection") -> None:
 
 
 def _call(conn, method, parameters, reply_type):
-    """Issue an async D-Bus call and pump a fresh MainLoop until it completes.
+    """Issue an async D-Bus call and run a MainLoop until it completes.
 
-    A blocking call_sync() would deadlock here: `conn` is also hosting the
-    exported service on this same thread's default main context, so the
-    incoming method-call message needs that context to keep spinning in order
-    to reach our own handler and reply. Async call() + a nested MainLoop lets
-    the default context do exactly that.
+    call_sync() would deadlock: the exported service shares this thread's default main context.
     """
     result = {}
     loop = GLib.MainLoop()
@@ -228,6 +215,5 @@ def test_invalid_set_manual_temp_maps_to_dbus_invalid_args_error(tmp_path, bus_a
     exc = result["error"]
     assert Gio.DBusError.get_remote_error(exc) == "org.freedesktop.DBus.Error.InvalidArgs"
 
-    # The rejected kelvin value must not have been stored: a subsequent tick
-    # must not raise (e.g. ZeroDivisionError from kelvin_to_mired(0)).
+    # The rejected kelvin value is not stored: a later tick must not raise.
     orch.tick()

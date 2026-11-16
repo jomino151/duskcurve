@@ -228,10 +228,8 @@ def test_config_error_is_value_error():
     assert issubclass(ConfigError, ValueError)
 
 
-# --- M6 final review, C1: a hand-authored custom curve must survive while a
-# built-in mode is selected. Keypoints alongside a non-custom mode are
-# therefore *accepted* (they are the parked fork) and dump_config emits them
-# regardless of mode. Only "custom with no keypoints" stays invalid.
+# --- Keypoints alongside a built-in mode are accepted (a parked custom curve) and
+# dumped regardless of mode. Only "custom with no keypoints" is invalid.
 
 
 def test_non_custom_mode_with_populated_keypoints_loads():
@@ -274,9 +272,7 @@ def test_custom_mode_without_keypoints_still_rejected():
 
 
 def test_gui_fork_edit_switch_away_and_back_preserves_the_edited_curve():
-    """The exact GUI journey from the M6 review: fork a built-in to custom,
-    edit a keypoint, switch the mode dropdown to a built-in, let the config go
-    through the daemon (dump -> load), then switch back to custom."""
+    """A custom curve survives switching to a built-in mode and back, via dump and load."""
     forked = Config(
         location=Location(52.52, 13.40, "Europe/Berlin"),
         wake="10:00",
@@ -311,9 +307,7 @@ def test_gui_fork_edit_switch_away_and_back_preserves_the_edited_curve():
     assert reloaded.custom_keypoints[1].kelvin == 3300.0
 
 
-# --- Review fix: IMPORTANT 2 -- non-numeric values in numeric-coerced fields
-# must raise ConfigError, not a bare ValueError/TypeError leaking out of
-# float()/int().
+# --- Non-numeric values in numeric fields raise ConfigError, not a bare ValueError/TypeError.
 
 
 def test_range_min_kelvin_non_numeric_raises_config_error():
@@ -379,7 +373,7 @@ offset_min = "abc"
         load_config(text)
 
 
-# --- Review fix: MINOR -- previously-untested-but-enforced rules.
+# --- Further validation rules.
 
 
 def test_keypoint_kelvin_zero_rejected():
@@ -679,8 +673,7 @@ manual_seconds = "abc"
 
 
 def test_config_written_before_manual_transition_seconds_still_loads():
-    """A TOML document with no [transition].manual_seconds key at all (as
-    written by a pre-change build) must still load, defaulting the field."""
+    """A document without [transition].manual_seconds still loads, with the default."""
     text = dump_config(default_config()).replace("manual_seconds = 2.0\n", "")
     assert "manual_seconds" not in text
     cfg = load_config(text)
@@ -690,10 +683,7 @@ def test_config_written_before_manual_transition_seconds_still_loads():
 def _with_theme(body: str) -> str:
     """A valid config whose theme section is exactly `body`.
 
-    The default dump already contains a [theme] table, so this drops it and
-    everything after it -- appending a second [theme] would be a TOML redefinition
-    error and every test below would fail on "invalid TOML" instead of on the
-    validation rule it is actually checking.
+    Drops the default [theme] table first: a second one would be a TOML redefinition error.
     """
     base = dump_config(default_config()).split("[theme]")[0]
     return base + body
@@ -728,7 +718,7 @@ def test_theme_round_trips_through_dump_and_load():
 
 
 def test_missing_theme_section_is_allowed():
-    # Every config written before M8 has no [theme] section and must still load.
+    # A config without a [theme] section still loads.
     text = dump_config(default_config())
     assert "[theme]" in text
     stripped = text.split("[theme]")[0]
@@ -741,8 +731,8 @@ def test_bad_theme_anchor_is_rejected():
 
 
 def test_bad_color_scheme_is_rejected_at_load_not_silently_ignored_at_write():
-    # Gio's set_string returns False for an out-of-enum value WITHOUT raising, so an
-    # unvalidated typo would present as "the theme just never changes". Catch it here.
+    # Gio's set_string returns False for an out-of-enum value instead of raising, so a typo
+    # would otherwise fail silently.
     with pytest.raises(ConfigError, match="color_scheme"):
         load_config(_with_theme('[theme.light]\ncolor_scheme = "prefer-lite"\n'))
 

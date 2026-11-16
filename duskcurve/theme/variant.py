@@ -1,8 +1,6 @@
 """The set of desktop settings that make up one theme (light or dark).
 
-PURE: stdlib dataclasses only. Lives here rather than in daemon/config.py or
-backend/desktop_theme.py because both of those import it, and duskcurve.theme is
-the one package below them both.
+Lives here because both daemon.config and backend.desktop_theme import it.
 """
 
 from dataclasses import dataclass

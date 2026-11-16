@@ -1,7 +1,6 @@
-"""Duskcurve desktop theme: which mode the desktop should be in, and what that mode looks like.
+"""Desktop theme model: which mode the desktop should be in, and what each mode contains.
 
-PURE package (stdlib + duskcurve.schedule.curve). The code that actually writes
-the settings lives in duskcurve.backend.desktop_theme.
+Applying the settings is the job of duskcurve.backend.desktop_theme.
 """
 
 from duskcurve.theme.policy import DARK, LIGHT, desired_mode

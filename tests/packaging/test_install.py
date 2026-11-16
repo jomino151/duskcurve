@@ -58,10 +58,11 @@ def test_refuses_to_clobber_a_real_file_in_local_bin(sandbox):
 
 
 def test_a_refused_clobber_leaves_no_partial_symlink_set(sandbox):
-    """Fail closed: the scan runs before any linking, so an aborted install
-    creates nothing rather than a half-linked ~/.local/bin. duskcurve-daemon
-    sorts before duskcurve-gui in CONSOLE_SCRIPTS, so it is the one that would
-    have been created by a loop that links as it goes."""
+    """The collision scan runs before any linking, so an aborted install creates nothing.
+
+    duskcurve-daemon sorts before duskcurve-gui, so a link-as-you-go loop would
+    have created it first.
+    """
     sandbox.bin.mkdir(parents=True, exist_ok=True)
     (sandbox.bin / "duskcurve-gui").write_text("#!/bin/sh\necho not ours\n")
     proc = sandbox.run("install.sh", "--no-start", expect_ok=False)
@@ -71,9 +72,7 @@ def test_a_refused_clobber_leaves_no_partial_symlink_set(sandbox):
 
 
 def test_diagnostic_die_names_the_remedy_for_an_old_pip_install(sandbox):
-    """When the collision is caused by an old `pip install --user` copy, the
-    die message should point at the actual remedy instead of a generic
-    'refusing to overwrite' that leaves the user guessing."""
+    """A collision with an old `pip install --user` copy names the remedy."""
     sandbox.bin.mkdir(parents=True, exist_ok=True)
     (sandbox.bin / "duskcurve-gui").write_text("#!/bin/sh\necho not ours\n")
     sandbox.env["STUB_PIP_SHOW_OK"] = "0"
@@ -85,8 +84,7 @@ def test_diagnostic_die_names_the_remedy_for_an_old_pip_install(sandbox):
 
 
 def test_refused_clobber_creates_no_venv_and_wastes_no_pip_install(sandbox):
-    """The console-script pre-scan must run before the venv is created, so a
-    refused clobber costs nothing -- not a full pip install."""
+    """The console-script pre-scan runs before the venv is created, so a refusal costs nothing."""
     sandbox.bin.mkdir(parents=True, exist_ok=True)
     (sandbox.bin / "duskcurve-gui").write_text("#!/bin/sh\necho not ours\n")
     proc = sandbox.run("install.sh", "--no-start", expect_ok=False)
@@ -131,8 +129,7 @@ def test_does_not_touch_apt_when_the_cairo_bridge_is_present(sandbox):
 
 
 def test_warns_about_a_shadowing_pip_user_install(sandbox):
-    """Two Duskcurve installs on PATH is a debugging trap; this machine has an
-    old `pip install --user --break-system-packages` copy from M5/M6."""
+    """Warn about an old `pip install --user` copy that shadows this install."""
     sandbox.env["STUB_PIP_SHOW_OK"] = "0"
     proc = sandbox.run("install.sh", "--no-start")
     assert "break-system-packages" in (proc.stdout + proc.stderr)
@@ -185,9 +182,7 @@ def test_reinstall_does_not_overwrite_the_recorded_night_light_value(sandbox):
 
 
 def test_a_failed_night_light_read_records_nothing(sandbox):
-    """Regression guard for Critical 2: a failed read must not be recorded as
-    a false 'off', because the uninstaller would then confidently (and
-    wrongly) turn Night Light off."""
+    """A failed read is not recorded as 'off'; the uninstaller would turn Night Light off."""
     sandbox.env["STUB_GSETTINGS_GET_FAIL"] = "1"
     sandbox.run("install.sh", "--no-start")
     state = (sandbox.data / "duskcurve" / "install-state").read_text()
@@ -253,10 +248,7 @@ def test_no_start_installs_the_unit_but_does_not_enable_it(sandbox):
 
 
 def test_closing_message_prints_even_when_systemctl_fails(sandbox):
-    """Regression guard for Important 4: the closing message is the only
-    place the user is told to log out before the extension loads. It must
-    still print if the daemon cannot start (no session bus, no graphical
-    session)."""
+    """The log-out message still prints when the daemon cannot start (no session bus)."""
     sandbox.env["STUB_SYSTEMCTL_FAIL"] = "1"
     proc = sandbox.run("install.sh")
     assert proc.returncode == 0
@@ -281,11 +273,11 @@ def test_a_full_install_is_idempotent(sandbox):
 
 
 def test_same_mode_reinstall_does_not_tear_down_the_extension_directory(sandbox):
-    """Re-running the installer is the documented upgrade path, so it must not
-    disturb a working extension. Removing and recreating the directory pulls it
-    out from under a running GNOME Shell, which moves the extension to the
-    disabled list -- recoverable only by a logout plus a manual re-enable.
-    A stable inode is what "was not torn down and recreated" looks like."""
+    """A re-run must not recreate the extension directory under a running GNOME Shell.
+
+    That would move the extension to the disabled list; a stable inode shows the
+    directory was left in place.
+    """
     ext = sandbox.data / "gnome-shell" / "extensions" / "focused-window@duskcurve"
     sandbox.run("install.sh", "--no-start")
     before = ext.stat().st_ino
@@ -309,9 +301,7 @@ def test_switching_from_dev_back_to_copy_replaces_the_symlink(sandbox):
 
 
 def test_reinstall_restarts_a_daemon_that_was_already_running(sandbox):
-    """`systemctl enable --now` starts a stopped unit but never restarts a
-    running one, so without an explicit restart an upgrade leaves the old
-    daemon process serving the old code until the next reboot."""
+    """`enable --now` never restarts a running unit, so an upgrade needs an explicit restart."""
     sandbox.run("install.sh")
     sandbox.stub_log_path.write_text("")
     sandbox.run("install.sh")
@@ -327,11 +317,10 @@ def test_fresh_install_does_not_restart_the_daemon_it_just_started(sandbox):
 
 
 def test_warns_about_a_competing_theme_switcher(sandbox):
-    """auto-darkmode-switcher writes the same dconf keys Duskcurve's [theme]
-    feature does; both installed at once fight and the visible result is a
-    theme that flips back and forth. warn() (like every other preflight
-    warning in install.sh) goes to stderr, so this checks the combined
-    stream rather than stdout alone."""
+    """auto-darkmode-switcher writes the same dconf keys as Duskcurve's [theme] feature.
+
+    warn() writes to stderr, so this checks the combined output.
+    """
     unit = sandbox.data / "systemd" / "user" / "auto-darkmode-switcher.service"
     unit.parent.mkdir(parents=True, exist_ok=True)
     unit.write_text("[Service]\n")

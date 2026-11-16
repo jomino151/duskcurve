@@ -1,7 +1,7 @@
 from duskcurve.color.presets import PRESETS, Preset
 
 
-def test_has_flux_preset_set():
+def test_has_standard_preset_set():
     assert PRESETS[0] == Preset(1200, "Ember")
     assert PRESETS[-1] == Preset(6500, "Daylight")
 

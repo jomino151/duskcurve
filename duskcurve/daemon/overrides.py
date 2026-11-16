@@ -20,15 +20,12 @@ def apply_override(target_kelvin: float, kind: str, value: float) -> float:
     if kind == "none":
         return target_kelvin
     elif kind == "warm_cap":
-        # warm_cap means never warmer (lower K) than value
-        # max(target_kelvin, value) keeps target if cooler, uses value if target is warmer
+        # Never warmer (lower K) than value.
         return max(target_kelvin, value)
     elif kind == "fixed":
-        # fixed ignores target and returns value directly
         return value
     elif kind == "offset":
-        # offset applies a mired-space delta to target
-        # positive mired delta = warmer (lower K)
+        # Mired-space delta; positive is warmer.
         mired_target = kelvin_to_mired(target_kelvin)
         mired_adjusted = mired_target + value
         return mired_to_kelvin(mired_adjusted)

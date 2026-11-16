@@ -1,4 +1,4 @@
-"""Pure window rule engine: maps focused-window state and user rules to per-connector actions."""
+"""Window rule engine: maps focused-window state and user rules to per-connector actions."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass

@@ -47,9 +47,7 @@ def test_winter_solstice_short_day():
     events = solar_events(LAT, LON, day, BERLIN)
 
     assert events.sunrise.hour == 8
-    # Brief states 15; verified against published data (timeanddate.com) and
-    # the independent `astral` library, real sunset for Berlin on this date
-    # is ~15:54 CET. See task-3.1-report.md for details.
+    # Real sunset for Berlin on this date is ~15:54 CET (timeanddate.com, astral).
     assert events.sunset.hour == 15
 
     day_length = events.sunset - events.sunrise

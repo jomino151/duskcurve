@@ -44,11 +44,8 @@ function windowsEqual(a, b) {
 }
 
 /**
- * Owns the org.duskcurve.WindowWatcher bus name and exports the
- * WindowWatcher D-Bus object. Tracks the last-published legacy triple and
- * the last-published window list separately, so that updateWindows() can
- * dedup each of FocusChanged and WindowsChanged independently and avoid
- * emitting either redundantly.
+ * Owns the org.duskcurve.WindowWatcher bus name and exports the D-Bus object.
+ * The legacy focus triple and the window list are deduplicated independently.
  */
 export class WindowWatcherService {
     constructor() {
@@ -76,9 +73,7 @@ export class WindowWatcherService {
             Gio.bus_unown_name(this._ownerId);
             this._ownerId = null;
         }
-        // this._impl.unexport() asserts (GLib-GIO-CRITICAL) if called when
-        // not currently exported, so guard it explicitly rather than
-        // relying on it being silently idempotent.
+        // unexport() on an unexported object raises a GLib-GIO-CRITICAL, so guard it.
         if (this._exported) {
             this._impl.unexport();
             this._exported = false;
@@ -86,7 +81,7 @@ export class WindowWatcherService {
     }
 
     // D-Bus method: GetState() -> (s app_id, b fullscreen, s monitor_connector)
-    // Legacy, untouched: still reflects the focused window only.
+    // Legacy: reflects the focused window only.
     GetState() {
         return [this._state.appId, this._state.fullscreen, this._state.connector];
     }
@@ -105,9 +100,7 @@ export class WindowWatcherService {
             ? [focusedEntry[0], focusedEntry[1], focusedEntry[3]]
             : ['', false, ''];
 
-        // Exactly the old update()'s dedup rule, applied to the legacy
-        // triple derived above, so a daemon that has not been updated yet
-        // sees identical FocusChanged behaviour.
+        // Legacy dedup rule, so an older daemon sees unchanged FocusChanged behaviour.
         if (this._state.appId !== legacy[0] ||
             this._state.fullscreen !== legacy[1] ||
             this._state.connector !== legacy[2]) {

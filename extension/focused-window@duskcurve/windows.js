@@ -1,19 +1,10 @@
 import Meta from 'gi://Meta';
 
 /**
- * Tracks every Meta.Window Mutter knows about so the extension can publish
- * not just the focused window but every *visible fullscreen* window
- * alongside it (see visibleFullscreenWindows()). Owns all of the per-window
- * signal bookkeeping this requires, so extension.js does not grow a second
- * copy of its already-careful connect/disconnect dance for the focus
- * window.
- *
- * Teardown discipline mirrors extension.js exactly: null a stored signal id
- * *before* calling disconnect() on it, wrap each teardown group in
- * try/catch, and never let one failed disconnect skip the rest. A
- * Meta.Window GObject wrapper can already be disposed by Mutter (Mutter
- * calls g_object_run_dispose() on it at the end of unmanaging), and
- * disconnect() on a disposed GObject throws in GJS.
+ * Tracks every Meta.Window so the extension can publish all visible fullscreen
+ * windows, not just the focused one. Signal ids are nulled before disconnect()
+ * and each disconnect is guarded separately: a window Mutter has already
+ * disposed throws, and that must cost one disconnect only.
  */
 export class WindowTracker {
     constructor(onChanged) {
@@ -57,10 +48,7 @@ export class WindowTracker {
         }
     }
 
-    // Connects the per-window signals this tracker cares about. A no-op if
-    // the window is already tracked (window-created should never fire
-    // twice for the same window, but this makes _track() safe to call
-    // defensively regardless).
+    // Connects the per-window signals; a no-op if the window is already tracked.
     _track(win) {
         if (this._windows.has(win))
             return;
@@ -78,11 +66,8 @@ export class WindowTracker {
             entry.minimizedId = win.connect('notify::minimized', () => this._changed());
             entry.monitorChangedId = win.connect('notify::main-monitor', () => this._changed());
             entry.workspaceChangedId = win.connect('workspace-changed', () => this._changed());
-            // Clear this window's tracking entry as soon as Mutter starts
-            // unmanaging it, i.e. before g_object_run_dispose() runs on
-            // it, so nothing later calls disconnect() on an
-            // already-disposed GObject wrapper. Deliberately does NOT call
-            // disconnect() itself -- see _untrack().
+            // Drop the entry when Mutter starts unmanaging the window, before disposal.
+            // Does not disconnect(); see _untrack().
             entry.unmanagedId = win.connect('unmanaged', () => this._untrack(win));
         } catch (e) {
             console.warn(`focused-window@duskcurve: WindowTracker failed to connect to a window: ${e}`);
@@ -91,11 +76,8 @@ export class WindowTracker {
         this._windows.set(win, entry);
     }
 
-    // unmanaged handler: drop the window from the tracked map WITHOUT
-    // calling disconnect() on it. By the time 'unmanaged' fires, Mutter is
-    // already tearing the window down; disconnect() on it can throw. Clear
-    // the entry's stored ids first (so nothing could ever mistake them for
-    // live subscriptions to disconnect), then drop the entry itself.
+    // Drops the window without disconnect(): by 'unmanaged' Mutter is already
+    // tearing it down and disconnect() can throw.
     _untrack(win) {
         const entry = this._windows.get(win);
         if (entry) {
@@ -117,9 +99,8 @@ export class WindowTracker {
         }
     }
 
-    // Returns the Meta.Window objects that are fullscreen and visible right
-    // now, per the shared predicate documented in the design doc. The
-    // caller (extension.js) maps each one to an app id and monitor
+    // Fullscreen windows that are visible now; the caller maps them to app ids and
+    // connectors.
     // connector; this class only decides *which* windows qualify.
     visibleFullscreenWindows() {
         const result = [];
@@ -163,12 +144,8 @@ export class WindowTracker {
             console.warn(`focused-window@duskcurve: WindowTracker destroy() teardown error: ${e}`);
         }
 
-        // One try/catch PER DISCONNECT, not per window. A Meta.Window wrapper
-        // that Mutter has already disposed throws on the first disconnect(),
-        // and a single try around all five would then skip the other four --
-        // leaving live handlers on a window this tracker no longer owns. The
-        // whole point of the rule is that a throw must cost exactly one
-        // disconnect, never the rest of the teardown.
+        // One try/catch per disconnect: a disposed window throws on the first, and the
+        // rest must still be disconnected.
         const ID_FIELDS = [
             'fullscreenId', 'minimizedId', 'monitorChangedId',
             'workspaceChangedId', 'unmanagedId',

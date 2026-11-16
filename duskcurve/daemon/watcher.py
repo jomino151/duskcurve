@@ -1,22 +1,13 @@
 """Consumer for the org.duskcurve.WindowWatcher D-Bus service.
 
-SYSTEM module: the GNOME Shell extension that owns this bus name will
-frequently be absent (not installed, disabled, or the shell restarted) — that
-is a normal operating state, not an error path. Graceful degradation to
-``on_change(None, ())`` is the default, not an exception.
+The GNOME Shell extension owning that name is often absent (not installed, disabled, shell
+restarted); that is a normal state and reports `on_change(None, ())`.
 
-Protocol negotiation: a modern extension exports ``GetWindows``/
-``WindowsChanged`` (the focused window plus every visible fullscreen
-non-focused window). An older extension only exports ``GetState``/
-``FocusChanged`` (the focused window alone). ``WindowWatcher`` tries the
-modern method first and falls back to the legacy one on any error (an
-unknown-method D-Bus error is the expected shape of that failure, not a bug).
-Both signals are subscribed unconditionally so nothing fired between
-negotiation and subscription is lost; the ``_modern`` flag decides which
-handler's payload is acted on.
-
-Only `start()` touches `gi`/`Gio`, and only via a lazy import inside the
-method, so that `import duskcurve.daemon` never pulls in `gi`.
+A modern extension exports GetWindows/WindowsChanged (focused window plus visible fullscreen
+unfocused ones); an older one only GetState/FocusChanged. The watcher tries the modern method
+first and falls back on any error. Both signals are subscribed up front so nothing is lost
+during negotiation; `_modern` selects which payload is acted on. Only `start()` imports `gi`,
+lazily, so `import duskcurve.daemon` never pulls it in.
 """
 
 import logging
@@ -44,11 +35,9 @@ def decode_windows_payload(
 ) -> tuple[WindowState | None, tuple[WindowState, ...]]:
     """Decode a GetWindows/WindowsChanged payload into (focused, unfocused).
 
-    Entries are ``(app_id, fullscreen, focused, monitor_connector)``. Blank/
-    whitespace ``app_id`` entries are dropped (reusing ``decode_focus_payload``
-    per entry). The first entry whose ``focused`` flag is truthy and which
-    decodes to a WindowState becomes the focused window; every other decoded
-    entry goes into ``unfocused``, in payload order.
+    Entries are ``(app_id, fullscreen, focused, monitor_connector)``. Blank app_ids are
+    dropped. The first focused entry is the focused window; the rest go to ``unfocused``
+    in payload order.
     """
     focused: WindowState | None = None
     unfocused: list[WindowState] = []
@@ -82,11 +71,10 @@ class WindowWatcher:
             log.exception("WindowWatcher: on_change callback raised")
 
     def _negotiate(self, call) -> None:
-        """Negotiate the protocol on name-appeared.
+        """Pick the protocol on name-appeared.
 
-        ``call(method_name)`` must invoke the named D-Bus method and return
-        its unpacked result: a list of entry-tuples for ``GetWindows``, or a
-        3-tuple ``(app_id, fullscreen, connector)`` for ``GetState``.
+        ``call(method_name)`` returns the unpacked result: entry tuples for ``GetWindows``,
+        ``(app_id, fullscreen, connector)`` for ``GetState``.
         """
         try:
             entries = call("GetWindows")

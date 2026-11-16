@@ -35,7 +35,7 @@ def _identity(size: int) -> list[int]:
 class FakeMutterTransport:
     """In-memory stand-in shaped exactly like the real unpacked D-Bus results.
 
-    Mirrors the target machine: outputs DP-2 (crtc id 0) and HDMI-1 (crtc id 1),
+    Models a two-monitor machine: outputs DP-2 (crtc id 0) and HDMI-1 (crtc id 1),
     each driven, with a configurable ramp size. `current_crtc` fields are indexes
     into the crtcs list, matching Mutter's GetResources semantics.
     """

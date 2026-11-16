@@ -1,8 +1,6 @@
 """Curve editor geometry: time/temperature <-> pixels, hit-testing, segments.
 
-PURE module: no gi, no cairo. The widget owns pixels and gestures; every
-decision about where a point goes and what the pointer is over lives here
-so it can be unit-tested.
+No gi or cairo, so it is testable without a display.
 """
 
 import math
@@ -73,12 +71,10 @@ def y_to_kelvin(y: float, vp: Viewport) -> float:
 def keypoint_points(
     kps: Sequence[KeypointConfig], ctx: DayContext, vp: Viewport
 ) -> tuple[tuple[float, float], ...]:
-    """One (x, y) per keypoint, in AUTHORED order.
+    """One (x, y) per keypoint, in authored order.
 
-    Times come from walk_minutes -- the same walk Curve.evaluate uses -- so
-    the drawn points sit exactly where the engine evaluates them. The walk can
-    run past 1440 (it pushes keypoints forward by whole days); wrap back into
-    the visible 24 hours for drawing.
+    Times come from walk_minutes, the walk Curve.evaluate uses, so points sit where the
+    engine evaluates them. The walk can exceed 1440; wrap into the visible 24 hours.
     """
     walk = walk_minutes([config_to_keypoint(k) for k in kps], ctx)
     return tuple(

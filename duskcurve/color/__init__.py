@@ -1,4 +1,4 @@
-"""Duskcurve color/gamma engine: Kelvin -> gamma-ramp math (pure, no system deps)."""
+"""Colour engine: Kelvin to gamma-ramp math, with no system dependencies."""
 
 from duskcurve.color.blackbody import kelvin_to_rgb
 from duskcurve.color.blackbody_table import WHITEPOINTS

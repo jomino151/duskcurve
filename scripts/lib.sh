@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
-# Shared facts and mechanics for install.sh and uninstall.sh.
-#
-# Sourced, never executed: it deliberately sets no shell options of its own,
-# and contains no install/uninstall policy -- only the paths both entry
-# points must agree on, plus small helpers.
+# Shared paths and helpers for install.sh and uninstall.sh.
+# Sourced, never executed: sets no shell options and holds no install policy.
 
 EXT_UUID="focused-window@duskcurve"
 CONSOLE_SCRIPTS=(duskcurve-daemon duskcurve-gui duskcurve-apply)
@@ -12,8 +9,8 @@ DESKTOP_FILE="org.duskcurve.gui.desktop"
 ICON_NAME="org.duskcurve.gui.svg"
 NEUTRAL_KELVIN=6500
 
-# Duplicated from duskcurve/backend/nightlight.py:7-8 because bash cannot import
-# it. tests/packaging/test_lib.py asserts these two still agree with that file.
+# Duplicated from duskcurve/backend/nightlight.py because bash cannot import it;
+# tests/packaging/test_lib.py asserts they agree.
 NIGHT_LIGHT_SCHEMA="org.gnome.settings-daemon.plugins.color"
 NIGHT_LIGHT_KEY="night-light-enabled"
 
@@ -41,8 +38,7 @@ state_set() {
     local key="$1" value="$2"
     mkdir -p "$(dirname "$DUSKCURVE_STATE_FILE")"
     if [ -f "$DUSKCURVE_STATE_FILE" ]; then
-        # Upsert: drop any existing line for this key before appending, so a
-        # re-install cannot leave two values for one key.
+        # Upsert: drop any existing line for the key so a re-install leaves one value.
         local tmp
         tmp="$(mktemp)"
         grep -v "^${key}=" "$DUSKCURVE_STATE_FILE" > "$tmp" || true

@@ -1,9 +1,7 @@
 """Client for the org.duskcurve.Daemon D-Bus service.
 
-SYSTEM module: the daemon may be absent (not started, crashed, restarting) --
-a normal operating state the GUI shows as a status page, not an error path.
-Only start()/stop() and the call helpers touch gi/Gio, and only via lazy
-imports inside the methods, so `import duskcurve.gui` never pulls in gi.
+The daemon may be absent (not started, crashed, restarting); the GUI shows that as a status
+page, not an error. gi is imported lazily inside the methods that need it.
 """
 
 import logging
@@ -60,9 +58,8 @@ class DaemonClient:
                 log.exception("could not decode a StatusChanged payload")
                 return
             self._safe(self._on_status, payload)
-            # StatusChanged fires exactly on the events that can change the
-            # config -- including an external TOML edit the daemon's file
-            # watcher picked up -- so refetch it. The poll path does not.
+            # StatusChanged fires on every event that can change the config (including
+            # external TOML edits), so refetch it. The poll path does not.
             self._refetch_config()
 
         self._watch_id = Gio.bus_watch_name_on_connection(
@@ -173,9 +170,7 @@ class DaemonClient:
     # -- polling --------------------------------------------------------
 
     def start_polling(self, interval_seconds: float) -> None:
-        """Poll GetStatus. StatusChanged is event-driven -- the daemon's tick
-        emits nothing -- so without this the temperature readout would sit
-        frozen while the curve drifts."""
+        """Poll GetStatus: the daemon's tick emits no StatusChanged, so the readout needs this."""
         if self._poll_id is not None:
             return
         import gi
