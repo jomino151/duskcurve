@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Shared paths and helpers for install.sh and uninstall.sh.
 # Sourced, never executed: sets no shell options and holds no install policy.
+# shellcheck disable=SC2034  # variables are consumed by the scripts that source this file
 
 EXT_UUID="focused-window@duskcurve"
 CONSOLE_SCRIPTS=(duskcurve-daemon duskcurve-gui duskcurve-apply)
