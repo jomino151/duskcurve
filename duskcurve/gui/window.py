@@ -85,9 +85,7 @@ def _scrolled(child: Gtk.Widget) -> Gtk.ScrolledWindow:
 
 
 class DuskcurveWindow(Adw.ApplicationWindow):
-    def __init__(
-        self, application: Adw.Application, state: AppState, client: DaemonClient
-    ) -> None:
+    def __init__(self, application: Adw.Application, state: AppState, client: DaemonClient) -> None:
         super().__init__(application=application, title=_APP_NAME)
         self.set_default_size(900, 700)
         # See _MIN_WIDTH/_MIN_HEIGHT: without an explicit minimum, Adwaita

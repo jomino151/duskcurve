@@ -1,4 +1,5 @@
 """Read/write GNOME Night Light's enabled flag so Duskcurve can take over gamma."""
+
 import gi
 
 gi.require_version("Gio", "2.0")

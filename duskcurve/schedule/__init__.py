@@ -1,4 +1,5 @@
 """Duskcurve schedule: curves, solar events, and daily clock modes (pure, no system deps)."""
+
 from duskcurve.schedule.curve import (
     Anchor,
     ClockAnchor,

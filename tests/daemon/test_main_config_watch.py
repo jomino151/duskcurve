@@ -11,6 +11,7 @@ StatusChanged emission.
 so this test imports it directly rather than importorskip-ing -- same
 precedent as tests/backend/test_nightlight.py.
 """
+
 from duskcurve.daemon.main import _ConfigFileWatchState
 
 

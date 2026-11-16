@@ -70,8 +70,7 @@ _VALUE_SUBTITLES = {
     ),
     "fixed": "Ignores the schedule entirely; this display stays at this value.",
     "offset": (
-        "Shifts the whole schedule by a mired delta. Positive is warmer, "
-        "negative is cooler."
+        "Shifts the whole schedule by a mired delta. Positive is warmer, negative is cooler."
     ),
 }
 
@@ -157,9 +156,7 @@ class _DisplayGroup:
             self.value_row.set_value(display_cfg.override_value)
 
         if status.rule_kind == "fixed":
-            kelvin_text = (
-                f"{status.rule_kelvin:.0f}" if status.rule_kelvin is not None else "?"
-            )
+            kelvin_text = f"{status.rule_kelvin:.0f}" if status.rule_kelvin is not None else "?"
             self.badge.set_label(f"Rule: forced to {kelvin_text} K")
             self.badge.set_visible(True)
         elif status.rule_kind == "disable":

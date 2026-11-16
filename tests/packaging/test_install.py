@@ -166,9 +166,10 @@ def test_records_night_light_before_starting_anything(sandbox):
 def test_records_night_light_false_when_it_was_off(sandbox):
     sandbox.set_gsettings(*NIGHT_LIGHT.split(), "false")
     sandbox.run("install.sh", "--no-start")
-    assert "night_light_was_enabled=false" in (
-        sandbox.data / "duskcurve" / "install-state"
-    ).read_text()
+    assert (
+        "night_light_was_enabled=false"
+        in (sandbox.data / "duskcurve" / "install-state").read_text()
+    )
 
 
 def test_reinstall_does_not_overwrite_the_recorded_night_light_value(sandbox):
@@ -176,11 +177,11 @@ def test_reinstall_does_not_overwrite_the_recorded_night_light_value(sandbox):
     would destroy the only copy of the user's original setting."""
     sandbox.set_gsettings(*NIGHT_LIGHT.split(), "true")
     sandbox.run("install.sh", "--no-start")
-    sandbox.set_gsettings(*NIGHT_LIGHT.split(), "false")   # as the daemon would leave it
+    sandbox.set_gsettings(*NIGHT_LIGHT.split(), "false")  # as the daemon would leave it
     sandbox.run("install.sh", "--no-start")
-    assert "night_light_was_enabled=true" in (
-        sandbox.data / "duskcurve" / "install-state"
-    ).read_text()
+    assert (
+        "night_light_was_enabled=true" in (sandbox.data / "duskcurve" / "install-state").read_text()
+    )
 
 
 def test_a_failed_night_light_read_records_nothing(sandbox):

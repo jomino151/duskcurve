@@ -217,6 +217,13 @@ def test_interface_xml_declares_the_theme_methods():
     assert '<method name="SetTheme">' in INTERFACE_XML
     assert '<method name="ClearTheme">' in INTERFACE_XML
     # Additive only: every pre-M8 method must still be declared.
-    for name in ("GetStatus", "GetConfig", "SetConfig", "SetPaused",
-                 "SetManualTemp", "ClearManualTemp", "ReloadConfig"):
+    for name in (
+        "GetStatus",
+        "GetConfig",
+        "SetConfig",
+        "SetPaused",
+        "SetManualTemp",
+        "ClearManualTemp",
+        "ReloadConfig",
+    ):
         assert f'<method name="{name}">' in INTERFACE_XML

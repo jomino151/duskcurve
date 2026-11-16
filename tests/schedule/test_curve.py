@@ -179,7 +179,7 @@ def test_walk_minutes_is_non_decreasing_and_keeps_authored_order():
     ]
     walk = walk_minutes(kps, ctx)
     assert len(walk) == len(kps)
-    assert walk == sorted(walk)                       # non-decreasing
+    assert walk == sorted(walk)  # non-decreasing
     assert walk[0] == anchor_minutes(kps[0].anchor, ctx)
 
 
@@ -196,7 +196,7 @@ def test_walk_minutes_clamps_an_inverted_keypoint_instead_of_reordering():
     ]
     walk = walk_minutes(kps, ctx)
     assert walk == sorted(walk)
-    assert walk[2] == walk[1]        # clamped into a zero-length segment, not swapped
+    assert walk[2] == walk[1]  # clamped into a zero-length segment, not swapped
 
 
 def test_curve_exposes_its_keypoints():
@@ -210,4 +210,4 @@ def test_curve_keypoints_cannot_mutate_the_curve():
     curve = Curve(kps)
     assert isinstance(curve.keypoints, tuple)
     kps.append(Keypoint(ClockAnchor(23, 0), 1900))
-    assert len(curve.keypoints) == 2      # the Curve copied the list at construction
+    assert len(curve.keypoints) == 2  # the Curve copied the list at construction

@@ -24,7 +24,7 @@ def test_construction_does_no_dbus_work():
     seen = []
     client = DaemonClient(seen.append, seen.append, seen.append)
     assert seen == []
-    client.stop()          # safe without start()
+    client.stop()  # safe without start()
     client.stop_polling()  # safe without start_polling()
 
 
@@ -405,7 +405,7 @@ def test_status_changed_delivers_the_payload_and_refetches_config(stub_daemon):
     stub_daemon.emit_status_changed('{"mode":"classic","paused":true,"per_display":[]}')
     assert _pump_until(lambda: len(configs) > before), "timed out waiting for config refetch"
     assert '"classic"' in statuses[-1]
-    assert len(configs) == before + 1      # the signal triggers a config refetch
+    assert len(configs) == before + 1  # the signal triggers a config refetch
     client.stop()
 
 
@@ -440,16 +440,16 @@ def test_polling_refetches_status_but_not_config(stub_daemon):
     client.start()
     # Settle the initial connect before taking baselines, for the same
     # reason as test_status_changed_delivers_the_payload_and_refetches_config.
-    assert _pump_until(
-        lambda: len(statuses) >= 1 and len(configs) >= 1
-    ), "timed out waiting for initial connect"
+    assert _pump_until(lambda: len(statuses) >= 1 and len(configs) >= 1), (
+        "timed out waiting for initial connect"
+    )
     status_before, config_before = len(statuses), len(configs)
     client.start_polling(1)
-    assert _pump_until(
-        lambda: len(statuses) > status_before, timeout=3.0
-    ), "timed out waiting for a poll tick"
+    assert _pump_until(lambda: len(statuses) > status_before, timeout=3.0), (
+        "timed out waiting for a poll tick"
+    )
     assert len(statuses) > status_before
-    assert len(configs) == config_before      # the poll path never calls GetConfig
+    assert len(configs) == config_before  # the poll path never calls GetConfig
     client.stop_polling()
     client.stop()
 
@@ -463,7 +463,7 @@ def test_start_polling_twice_does_not_create_two_timers(stub_daemon):
     assert client._poll_id == first
     client.stop_polling()
     assert client._poll_id is None
-    client.stop_polling()      # idempotent
+    client.stop_polling()  # idempotent
     client.stop()
 
 
@@ -472,7 +472,7 @@ def test_a_raising_callback_does_not_escape_into_gio(stub_daemon, caplog):
         raise RuntimeError("view exploded")
 
     client = DaemonClient(boom, boom, lambda _b: None)
-    client.start()             # must not raise
+    client.start()  # must not raise
     # Pump so the connect's refresh() (which invokes boom() via
     # on_status/on_config) and the emitted signal below actually run --
     # otherwise this test would exercise nothing. Bounded, never hangs: it

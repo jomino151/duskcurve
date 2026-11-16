@@ -384,9 +384,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
         cfg = self._state.config
         if cfg is None:
             return
-        self._state.apply_config(
-            dataclasses.replace(cfg, rule_transition_seconds=row.get_value())
-        )
+        self._state.apply_config(dataclasses.replace(cfg, rule_transition_seconds=row.get_value()))
 
     def _on_manual_transition_changed(self, row: Adw.SpinRow, _pspec: GObject.ParamSpec) -> None:
         if self._rendering:

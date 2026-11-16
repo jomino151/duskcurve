@@ -42,26 +42,34 @@ def test_decode_windows_empty_payload():
 
 
 def test_decode_windows_splits_focused_from_unfocused():
-    focused, unfocused = decode_windows_payload([
-        ("mpv", True, False, "DP-2"),
-        ("org.gnome.Console", False, True, "HDMI-1"),
-    ])
+    focused, unfocused = decode_windows_payload(
+        [
+            ("mpv", True, False, "DP-2"),
+            ("org.gnome.Console", False, True, "HDMI-1"),
+        ]
+    )
     assert focused == WindowState("org.gnome.Console", False, "HDMI-1")
     assert unfocused == (WindowState("mpv", True, "DP-2"),)
 
 
 def test_decode_windows_drops_blank_app_ids():
-    focused, unfocused = decode_windows_payload([
-        ("", True, False, "DP-2"), ("  ", False, True, "HDMI-1"),
-    ])
+    focused, unfocused = decode_windows_payload(
+        [
+            ("", True, False, "DP-2"),
+            ("  ", False, True, "HDMI-1"),
+        ]
+    )
     assert focused is None
     assert unfocused == ()
 
 
 def test_decode_windows_keeps_only_the_first_focused_entry():
-    focused, unfocused = decode_windows_payload([
-        ("a", False, True, "DP-2"), ("b", True, True, "HDMI-1"),
-    ])
+    focused, unfocused = decode_windows_payload(
+        [
+            ("a", False, True, "DP-2"),
+            ("b", True, True, "HDMI-1"),
+        ]
+    )
     assert focused == WindowState("a", False, "DP-2")
     assert unfocused == (WindowState("b", True, "HDMI-1"),)
 
@@ -75,8 +83,13 @@ def test_decode_windows_coerces_types():
 def test_negotiation_prefers_getwindows():
     seen = []
     w = WindowWatcher(lambda f, u: seen.append((f, u)))
-    w._negotiate(lambda name: [("mpv", True, False, "DP-2")]
-                 if name == "GetWindows" else pytest.fail("legacy path used"))
+    w._negotiate(
+        lambda name: (
+            [("mpv", True, False, "DP-2")]
+            if name == "GetWindows"
+            else pytest.fail("legacy path used")
+        )
+    )
     assert w._modern is True
     assert seen == [(None, (WindowState("mpv", True, "DP-2"),))]
 
@@ -117,7 +130,7 @@ def test_a_raising_callback_does_not_escape_the_handlers():
 
     w = WindowWatcher(boom)
     w._modern = True
-    w._handle_windows_changed([("mpv", True, False, "DP-2")])   # must not raise
+    w._handle_windows_changed([("mpv", True, False, "DP-2")])  # must not raise
 
 
 def test_stop_unsubscribes_both_signal_subscriptions():
@@ -140,7 +153,7 @@ def test_construction_does_no_dbus_work():
     seen = []
     w = WindowWatcher(lambda f, u: seen.append((f, u)))
     assert seen == []
-    w.stop()          # safe without start()
+    w.stop()  # safe without start()
 
 
 def test_importing_duskcurve_daemon_watcher_does_not_pull_in_gi():

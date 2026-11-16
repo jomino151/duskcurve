@@ -3,6 +3,7 @@
 The real transport (GioMutterTransport) lives in gio_transport.py and imports gi;
 this module stays gi-free so the backend logic can be unit-tested without a bus.
 """
+
 from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 

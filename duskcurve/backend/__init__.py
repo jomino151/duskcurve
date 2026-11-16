@@ -1,4 +1,5 @@
 """Duskcurve display backend: enumerate monitors and drive per-CRTC gamma."""
+
 from duskcurve.backend.mutter import Display, MutterBackend
 from duskcurve.backend.transport import (
     FakeMutterTransport,

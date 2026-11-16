@@ -1,4 +1,5 @@
 """duskcurve-apply: set a single monitor's color temperature (manual/dev tool)."""
+
 import argparse
 import sys
 
@@ -8,6 +9,7 @@ from duskcurve.color import build_ramp
 
 def _default_backend() -> MutterBackend:
     from duskcurve.backend.gio_transport import GioMutterTransport
+
     return MutterBackend(GioMutterTransport())
 
 

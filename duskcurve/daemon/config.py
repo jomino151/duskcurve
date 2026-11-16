@@ -158,17 +158,14 @@ def _validate_mode(mode: object) -> str:
         raise ConfigError(f"schedule.mode must be a string, got {mode!r}")
     if mode != "custom" and mode not in MODES:
         raise ConfigError(
-            f"schedule.mode {mode!r} is not a known mode "
-            f"({sorted(MODES)} or 'custom')"
+            f"schedule.mode {mode!r} is not a known mode ({sorted(MODES)} or 'custom')"
         )
     return mode
 
 
 def _validate_anchor(value: object, label: str) -> str:
     if not isinstance(value, str) or not (value in _EVENT_ANCHORS or _HHMM_RE.match(value)):
-        raise ConfigError(
-            f"{label} {value!r} must be one of {sorted(_EVENT_ANCHORS)} or 'HH:MM'"
-        )
+        raise ConfigError(f"{label} {value!r} must be one of {sorted(_EVENT_ANCHORS)} or 'HH:MM'")
     return value
 
 
@@ -176,8 +173,14 @@ def _validate_theme_variant(raw: object, label: str, default: ThemeVariant) -> T
     if not isinstance(raw, dict):
         raise ConfigError(f"[{label}] must be a table, got {raw!r}")
     values = {}
-    for name in ("color_scheme", "gtk_theme", "icon_theme", "shell_theme", "cursor_theme",
-                 "wallpaper"):
+    for name in (
+        "color_scheme",
+        "gtk_theme",
+        "icon_theme",
+        "shell_theme",
+        "cursor_theme",
+        "wallpaper",
+    ):
         value = raw.get(name, getattr(default, name))
         if not isinstance(value, str):
             raise ConfigError(f"{label}.{name} must be a string, got {value!r}")
@@ -364,14 +367,14 @@ def _validate_displays(raw: dict) -> dict[str, DisplayConfig]:
 def _validate_rule(raw: dict) -> Rule:
     action = raw.get("action")
     if not isinstance(action, str) or action not in RULE_ACTIONS:
-        raise ConfigError(
-            f"[[rules]] action must be one of {sorted(RULE_ACTIONS)}, got {action!r}"
-        )
+        raise ConfigError(f"[[rules]] action must be one of {sorted(RULE_ACTIONS)}, got {action!r}")
 
     action_kelvin = raw.get("action_kelvin")
     if action == "fixed":
-        if not isinstance(action_kelvin, int) or isinstance(action_kelvin, bool) or (
-            action_kelvin <= 0
+        if (
+            not isinstance(action_kelvin, int)
+            or isinstance(action_kelvin, bool)
+            or (action_kelvin <= 0)
         ):
             raise ConfigError(
                 f"[[rules]] action_kelvin must be a positive integer when action == 'fixed', "
@@ -388,9 +391,7 @@ def _validate_rule(raw: dict) -> Rule:
 
     match_fullscreen = raw.get("match_fullscreen", False)
     if not isinstance(match_fullscreen, bool):
-        raise ConfigError(
-            f"[[rules]] match_fullscreen must be a bool, got {match_fullscreen!r}"
-        )
+        raise ConfigError(f"[[rules]] match_fullscreen must be a bool, got {match_fullscreen!r}")
 
     if match_app_glob is None and match_fullscreen is not True:
         raise ConfigError(
@@ -400,9 +401,7 @@ def _validate_rule(raw: dict) -> Rule:
 
     match_unfocused = raw.get("match_unfocused", False)
     if not isinstance(match_unfocused, bool):
-        raise ConfigError(
-            f"[[rules]] match_unfocused must be a bool, got {match_unfocused!r}"
-        )
+        raise ConfigError(f"[[rules]] match_unfocused must be a bool, got {match_unfocused!r}")
     if match_unfocused and match_fullscreen is not True:
         raise ConfigError(
             "[[rules]] match_unfocused = true requires match_fullscreen = true; "

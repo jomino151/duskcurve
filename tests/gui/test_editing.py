@@ -152,14 +152,14 @@ def test_fork_to_custom_preserves_every_other_setting():
 @pytest.mark.parametrize(
     "bad_anchor",
     [
-        "25:99",      # hour > 23, minute > 59
-        "12:60",      # minute > 59
+        "25:99",  # hour > 23, minute > 59
+        "12:60",  # minute > 59
         "lunchtime",  # not an event name, not HH:MM
-        "",           # empty string
-        "8",          # no colon
-        "8:0:0",      # too many colons
-        " 8:00",      # leading whitespace
-        "+8:00",      # leading sign
+        "",  # empty string
+        "8",  # no colon
+        "8:0:0",  # too many colons
+        " 8:00",  # leading whitespace
+        "+8:00",  # leading sign
     ],
 )
 def test_config_to_keypoint_rejects_malformed_clock_anchors(bad_anchor):
@@ -184,12 +184,8 @@ def test_mixed_anchor_types_round_trip_through_serialization():
     # which the built-in modes (all event-anchored) do not cover.
     kps_config = (
         KeypointConfig(anchor="07:05", kelvin=6500, offset_min=0, easing="smoothstep"),
-        KeypointConfig(
-            anchor="sunset", kelvin=3400.0, offset_min=-60, easing="smoothstep"
-        ),
-        KeypointConfig(
-            anchor="wake", kelvin=5500.0, offset_min=30, easing="smoothstep"
-        ),
+        KeypointConfig(anchor="sunset", kelvin=3400.0, offset_min=-60, easing="smoothstep"),
+        KeypointConfig(anchor="wake", kelvin=5500.0, offset_min=30, easing="smoothstep"),
     )
     cfg = with_keypoints(default_config(), kps_config)
     # Full round-trip through daemon serialization.
@@ -227,7 +223,7 @@ def test_set_kelvin_clamps_to_the_configured_range():
 
 def test_shift_an_event_anchor_adjusts_the_offset_and_keeps_the_anchor():
     got = shift_keypoint_time(BASE, 1, 30)
-    assert got[1].anchor == "sunset"        # still tracks sunset seasonally
+    assert got[1].anchor == "sunset"  # still tracks sunset seasonally
     assert got[1].offset_min == 90
 
 
@@ -295,8 +291,7 @@ def test_mutations_never_reorder_an_inverted_walk():
     anchors = [k.anchor for k in shift_keypoint_time(inverted, 1, 30)]
     assert anchors == ["wake", "23:30", "06:00", "sunset"]
     anchors = [
-        k.anchor
-        for k in set_keypoint_kelvin(inverted, 3, 3000, min_kelvin=1200, max_kelvin=6500)
+        k.anchor for k in set_keypoint_kelvin(inverted, 3, 3000, min_kelvin=1200, max_kelvin=6500)
     ]
     assert anchors == ["wake", "23:00", "06:00", "sunset"]
 
@@ -328,9 +323,7 @@ def test_an_out_of_range_index_raises(fn, args):
 
 
 def test_edited_keypoints_survive_the_daemon_validator():
-    base_edited = set_keypoint_kelvin(
-        BASE, 0, 6000.0, min_kelvin=1200.0, max_kelvin=6500.0
-    )
+    base_edited = set_keypoint_kelvin(BASE, 0, 6000.0, min_kelvin=1200.0, max_kelvin=6500.0)
     edited = shift_keypoint_time(base_edited, 1, 15)
     cfg = with_keypoints(default_config(), edited)
     assert load_config(dump_config(cfg)).custom_keypoints == edited
@@ -385,15 +378,10 @@ def test_move_by_zero_is_a_no_op():
 def test_reordering_changes_which_rule_wins():
     # The behavioural reason order is load-bearing, asserted against the real
     # resolver rather than assumed.
-    window = WindowState(
-        app_id="org.gimp.GIMP", fullscreen=True, monitor_connector="DP-2"
-    )
+    window = WindowState(app_id="org.gimp.GIMP", fullscreen=True, monitor_connector="DP-2")
     rules = (R0, R1)  # fullscreen-disable first
     assert resolve_rules(window, rules, ["DP-2"])["DP-2"].kind == "disable"
-    assert (
-        resolve_rules(window, move_rule(rules, 1, -1), ["DP-2"])["DP-2"].kind
-        == "fixed"
-    )
+    assert resolve_rules(window, move_rule(rules, 1, -1), ["DP-2"])["DP-2"].kind == "fixed"
 
 
 def test_replace_rule_out_of_range_raises():
@@ -513,8 +501,9 @@ def test_winning_indices_credits_the_focused_rule_that_actually_wins():
     # the full rule set a LATER focused rule claims that display first and the
     # unfocused rule never gets it. The badge would then point at the wrong
     # rule -- the one thing this module's docstring promises cannot happen.
-    unfocused_rule = Rule(action="disable", match_fullscreen=True, match_unfocused=True,
-                          scope="window_monitor")
+    unfocused_rule = Rule(
+        action="disable", match_fullscreen=True, match_unfocused=True, scope="window_monitor"
+    )
     gimp_rule = Rule(action="force_day", match_app_glob="gimp", scope="all")
     rules = (unfocused_rule, gimp_rule)
     connectors = ("DP-2", "HDMI-1")
@@ -524,7 +513,7 @@ def test_winning_indices_credits_the_focused_rule_that_actually_wins():
 
     # What the daemon actually does with the full rule set:
     actions = resolve_rules(focused, rules, connectors, 6500.0, unfocused)
-    assert actions["DP-2"].kind == "fixed"    # gimp_rule, scope "all", won it
+    assert actions["DP-2"].kind == "fixed"  # gimp_rule, scope "all", won it
 
     winners = _winning_indices(rules, focused, connectors, 6500.0, unfocused)
     assert winners == {"DP-2": 1, "HDMI-1": 1}

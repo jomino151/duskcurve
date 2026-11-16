@@ -26,8 +26,13 @@ def test_parses_a_full_payload():
     assert st.paused is False
     assert len(st.displays) == 2
     assert st.displays[0] == DisplayStatus(
-        connector="DP-2", current_k=3400, enabled=True, override="none",
-        rule_kind="none", rule_kelvin=None, manual_k=None,
+        connector="DP-2",
+        current_k=3400,
+        enabled=True,
+        override="none",
+        rule_kind="none",
+        rule_kelvin=None,
+        manual_k=None,
     )
     assert st.displays[1].rule_kind == "fixed"
     assert st.displays[1].rule_kelvin == 6500.0
@@ -51,8 +56,7 @@ def test_missing_manual_expiry_falls_back_to_none():
 
 def test_non_numeric_manual_expiry_falls_back_to_none():
     st = parse_status(
-        '{"per_display": [{"connector": "DP-2", "manual_k": 2500,'
-        ' "manual_expires_in_s": "soon"}]}'
+        '{"per_display": [{"connector": "DP-2", "manual_k": 2500, "manual_expires_in_s": "soon"}]}'
     )
     assert st.display("DP-2").manual_expires_in_s is None
 
@@ -108,7 +112,7 @@ def test_missing_optional_keys_fall_back_to_defaults():
     assert st.next_transition is None
     assert st.window is None
     d = st.displays[0]
-    assert d.current_k == 6500        # neutral
+    assert d.current_k == 6500  # neutral
     assert d.enabled is True
     assert d.override == "none"
     assert d.rule_kind == "none"
@@ -153,8 +157,7 @@ def test_non_numeric_manual_k_falls_back_to_none():
 def test_non_numeric_rule_kelvin_falls_back_to_none():
     st = parse_status('{"per_display":[{"connector":"DP-2","rule_action":{"kelvin":[1,2]}}]}')
     assert st.displays[0].rule_kelvin is None
-    bad_kelvin = '{"per_display":[{"connector":"DP-2","rule_action":{"kelvin":' \
-                 '{"bad":"value"}}}]}'
+    bad_kelvin = '{"per_display":[{"connector":"DP-2","rule_action":{"kelvin":{"bad":"value"}}}]}'
     st = parse_status(bad_kelvin)
     assert st.displays[0].rule_kelvin is None
 
@@ -194,16 +197,30 @@ def test_status_without_a_theme_block_still_parses():
 
 
 def test_windows_are_parsed():
-    status = parse_status(json.dumps({
-        "mode": "classic", "paused": False, "per_display": [],
-        "window": {"app_id": "gimp", "fullscreen": False, "monitor_connector": "HDMI-1"},
-        "windows": [
-            {"app_id": "gimp", "fullscreen": False, "focused": True,
-             "monitor_connector": "HDMI-1"},
-            {"app_id": "mpv", "fullscreen": True, "focused": False,
-             "monitor_connector": "DP-2"},
-        ],
-    }))
+    status = parse_status(
+        json.dumps(
+            {
+                "mode": "classic",
+                "paused": False,
+                "per_display": [],
+                "window": {"app_id": "gimp", "fullscreen": False, "monitor_connector": "HDMI-1"},
+                "windows": [
+                    {
+                        "app_id": "gimp",
+                        "fullscreen": False,
+                        "focused": True,
+                        "monitor_connector": "HDMI-1",
+                    },
+                    {
+                        "app_id": "mpv",
+                        "fullscreen": True,
+                        "focused": False,
+                        "monitor_connector": "DP-2",
+                    },
+                ],
+            }
+        )
+    )
     assert status.windows == (
         WindowStatus("gimp", False, "HDMI-1", True),
         WindowStatus("mpv", True, "DP-2", False),
@@ -211,27 +228,52 @@ def test_windows_are_parsed():
 
 
 def test_absent_windows_is_derived_from_window():
-    status = parse_status(json.dumps({
-        "mode": "classic", "paused": False, "per_display": [],
-        "window": {"app_id": "gimp", "fullscreen": False, "monitor_connector": "HDMI-1"},
-    }))
+    status = parse_status(
+        json.dumps(
+            {
+                "mode": "classic",
+                "paused": False,
+                "per_display": [],
+                "window": {"app_id": "gimp", "fullscreen": False, "monitor_connector": "HDMI-1"},
+            }
+        )
+    )
     assert status.windows == (WindowStatus("gimp", False, "HDMI-1", True),)
 
 
 def test_absent_windows_and_no_window_gives_an_empty_tuple():
-    status = parse_status(json.dumps({
-        "mode": "classic", "paused": False, "per_display": [],
-    }))
+    status = parse_status(
+        json.dumps(
+            {
+                "mode": "classic",
+                "paused": False,
+                "per_display": [],
+            }
+        )
+    )
     assert status.windows == ()
 
 
 def test_malformed_window_entries_are_dropped():
-    status = parse_status(json.dumps({
-        "mode": "classic", "paused": False, "per_display": [],
-        "windows": ["nonsense", {"app_id": ""},
-                    {"app_id": "mpv", "fullscreen": True, "focused": False,
-                     "monitor_connector": "DP-2"}],
-    }))
+    status = parse_status(
+        json.dumps(
+            {
+                "mode": "classic",
+                "paused": False,
+                "per_display": [],
+                "windows": [
+                    "nonsense",
+                    {"app_id": ""},
+                    {
+                        "app_id": "mpv",
+                        "fullscreen": True,
+                        "focused": False,
+                        "monitor_connector": "DP-2",
+                    },
+                ],
+            }
+        )
+    )
     assert status.windows == (WindowStatus("mpv", True, "DP-2", False),)
 
 
@@ -239,14 +281,27 @@ def test_wrongly_typed_windows_value_falls_back_instead_of_crashing():
     # An older or buggy daemon could send anything here. The parser must be as
     # tolerant as _parse_display is about per_display: fall back to the
     # single-window key rather than raise.
-    status = parse_status(json.dumps({
-        "mode": "classic", "paused": False, "per_display": [],
-        "window": {"app_id": "gimp", "fullscreen": False, "monitor_connector": "HDMI-1"},
-        "windows": "nonsense",
-    }))
+    status = parse_status(
+        json.dumps(
+            {
+                "mode": "classic",
+                "paused": False,
+                "per_display": [],
+                "window": {"app_id": "gimp", "fullscreen": False, "monitor_connector": "HDMI-1"},
+                "windows": "nonsense",
+            }
+        )
+    )
     assert status.windows == (WindowStatus("gimp", False, "HDMI-1", True),)
 
-    status = parse_status(json.dumps({
-        "mode": "classic", "paused": False, "per_display": [], "windows": {"a": 1},
-    }))
+    status = parse_status(
+        json.dumps(
+            {
+                "mode": "classic",
+                "paused": False,
+                "per_display": [],
+                "windows": {"a": 1},
+            }
+        )
+    )
     assert status.windows == ()

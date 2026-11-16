@@ -8,6 +8,7 @@ GLib main loop. Verified by import + the M4 milestone-E manual/systemd run,
 not by a full behavioral unit test (see tests/daemon/test_main_smoke.py for
 the one live-dispatch smoke test that *is* covered).
 """
+
 import logging
 import os
 import signal
@@ -344,9 +345,7 @@ def main() -> int:
         # sit at neutral 6500 K -- a brief flash -- for that whole interval
         # right after Night Light was just disabled above.
         daemon.tick_cb()
-        GLib.timeout_add_seconds(
-            max(1, int(daemon.config.tick_interval_seconds)), daemon.tick_cb
-        )
+        GLib.timeout_add_seconds(max(1, int(daemon.config.tick_interval_seconds)), daemon.tick_cb)
         daemon.install_signal_handlers()
     except Exception:
         log.exception("failed to initialize Duskcurve daemon")

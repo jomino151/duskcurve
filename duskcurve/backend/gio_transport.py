@@ -1,4 +1,5 @@
 """Real MutterTransport over the session bus via PyGObject/Gio."""
+
 import array
 
 import gi
@@ -51,8 +52,15 @@ class GioMutterTransport:
         params = _params(method, args)
         try:
             result = self._conn.call_sync(
-                _NAME, _PATH, _IFACE, method, params, None,
-                Gio.DBusCallFlags.NONE, -1, None,
+                _NAME,
+                _PATH,
+                _IFACE,
+                method,
+                params,
+                None,
+                Gio.DBusCallFlags.NONE,
+                -1,
+                None,
             )
         except GLib.Error as e:
             msg = e.message
@@ -64,6 +72,12 @@ class GioMutterTransport:
 
     def subscribe_monitors_changed(self, cb) -> None:
         self._sub_id = self._conn.signal_subscribe(
-            _NAME, _IFACE, "MonitorsChanged", _PATH, None,
-            Gio.DBusSignalFlags.NONE, lambda *a: cb(), None,
+            _NAME,
+            _IFACE,
+            "MonitorsChanged",
+            _PATH,
+            None,
+            Gio.DBusSignalFlags.NONE,
+            lambda *a: cb(),
+            None,
         )

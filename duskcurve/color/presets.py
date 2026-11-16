@@ -1,4 +1,5 @@
 """Named color-temperature presets."""
+
 from typing import NamedTuple
 
 

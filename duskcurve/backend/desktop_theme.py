@@ -156,15 +156,11 @@ class ThemeApplier:
         # element's raise must never cost the rest of the apply. See finding 2.
         try:
             if not self._writer.has_schema(schema):
-                log.warning(
-                    "skipping %s: GSettings schema %s is not installed", element, schema
-                )
+                log.warning("skipping %s: GSettings schema %s is not installed", element, schema)
                 skipped.append(element)
                 return
             if not self._writer.set_string(schema, key, value):
-                log.warning(
-                    "skipping %s: %s %s rejected the value %r", element, schema, key, value
-                )
+                log.warning("skipping %s: %s %s rejected the value %r", element, schema, key, value)
                 skipped.append(element)
         except Exception:
             log.warning("skipping %s: writing %s %s raised", element, schema, key, exc_info=True)

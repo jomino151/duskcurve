@@ -147,61 +147,79 @@ def test_custom_mode_with_empty_keypoints_rejected():
 
 
 def test_custom_mode_with_bad_anchor_rejected():
-    text = _base_toml(mode="custom") + """
+    text = (
+        _base_toml(mode="custom")
+        + """
 [[schedule.keypoints]]
 anchor = "not_an_event_or_clock"
 kelvin = 6500
 """
+    )
     with pytest.raises(ConfigError):
         load_config(text)
 
 
 def test_custom_mode_with_bad_easing_rejected():
-    text = _base_toml(mode="custom") + """
+    text = (
+        _base_toml(mode="custom")
+        + """
 [[schedule.keypoints]]
 anchor = "wake"
 kelvin = 6500
 easing = "bounce"
 """
+    )
     with pytest.raises(ConfigError):
         load_config(text)
 
 
 def test_bad_override_kind_rejected():
-    text = _base_toml() + """
+    text = (
+        _base_toml()
+        + """
 [displays.DP-2]
 enabled = true
 override_kind = "not_a_kind"
 override_value = 100.0
 """
+    )
     with pytest.raises(ConfigError):
         load_config(text)
 
 
 def test_min_kelvin_gte_max_kelvin_rejected():
-    text = _base_toml() + """
+    text = (
+        _base_toml()
+        + """
 [range]
 min_kelvin = 6500
 max_kelvin = 6500
 """
+    )
     with pytest.raises(ConfigError):
         load_config(text)
 
 
 def test_negative_transition_seconds_rejected():
-    text = _base_toml() + """
+    text = (
+        _base_toml()
+        + """
 [transition]
 seconds = -1.0
 """
+    )
     with pytest.raises(ConfigError):
         load_config(text)
 
 
 def test_non_positive_tick_interval_rejected():
-    text = _base_toml() + """
+    text = (
+        _base_toml()
+        + """
 [tick]
 interval_seconds = 0.0
 """
+    )
     with pytest.raises(ConfigError):
         load_config(text)
 
@@ -499,13 +517,16 @@ def test_rules_round_trip():
 
 
 def test_rule_parsed_from_hand_written_toml():
-    text = dump_config(default_config()) + """
+    text = (
+        dump_config(default_config())
+        + """
 [[rules]]
 match_app_glob = "steam_app_*"
 match_fullscreen = true
 action = "disable"
 scope = "all"
 """
+    )
     cfg = load_config(text)
     assert cfg.rules == (
         Rule(
@@ -519,70 +540,87 @@ scope = "all"
 
 
 def test_match_unfocused_defaults_to_false():
-    cfg = load_config(_base_toml() + """
+    cfg = load_config(
+        _base_toml()
+        + """
 [[rules]]
 match_fullscreen = true
 action = "disable"
-""")
+"""
+    )
     assert cfg.rules[0].match_unfocused is False
 
 
 def test_match_unfocused_is_parsed():
-    cfg = load_config(_base_toml() + """
+    cfg = load_config(
+        _base_toml()
+        + """
 [[rules]]
 match_fullscreen = true
 match_unfocused = true
 action = "disable"
-""")
+"""
+    )
     assert cfg.rules[0].match_unfocused is True
 
 
 def test_match_unfocused_requires_match_fullscreen():
     with pytest.raises(ConfigError, match="match_unfocused"):
-        load_config(_base_toml() + """
+        load_config(
+            _base_toml()
+            + """
 [[rules]]
 match_app_glob = "mpv"
 match_unfocused = true
 action = "disable"
-""")
+"""
+        )
 
 
 def test_match_unfocused_must_be_a_bool():
     with pytest.raises(ConfigError, match="match_unfocused"):
-        load_config(_base_toml() + """
+        load_config(
+            _base_toml()
+            + """
 [[rules]]
 match_fullscreen = true
 match_unfocused = "yes"
 action = "disable"
-""")
+"""
+        )
 
 
 def test_round_trip_preserves_match_unfocused():
-    rule = Rule(action="fixed", action_kelvin=3400, match_app_glob="mpv",
-                match_fullscreen=True, match_unfocused=True, scope="DP-2")
+    rule = Rule(
+        action="fixed",
+        action_kelvin=3400,
+        match_app_glob="mpv",
+        match_fullscreen=True,
+        match_unfocused=True,
+        scope="DP-2",
+    )
     cfg = replace(default_config(), rules=(rule,))
     assert load_config(dump_config(cfg)).rules == (rule,)
 
 
 def test_dump_omits_match_unfocused_when_false():
-    cfg = replace(default_config(),
-                  rules=(Rule(action="disable", match_fullscreen=True),))
+    cfg = replace(default_config(), rules=(Rule(action="disable", match_fullscreen=True),))
     assert "match_unfocused" not in dump_config(cfg)
 
 
 @pytest.mark.parametrize(
     "block",
     [
-        '[[rules]]\nmatch_fullscreen = true\n',                                # no action
-        '[[rules]]\naction = "explode"\nmatch_fullscreen = true\n',            # unknown action
-        '[[rules]]\naction = "fixed"\nmatch_fullscreen = true\n',              # fixed w/o kelvin
+        "[[rules]]\nmatch_fullscreen = true\n",  # no action
+        '[[rules]]\naction = "explode"\nmatch_fullscreen = true\n',  # unknown action
+        '[[rules]]\naction = "fixed"\nmatch_fullscreen = true\n',  # fixed w/o kelvin
         '[[rules]]\naction = "fixed"\naction_kelvin = 0\nmatch_fullscreen = true\n',
-        '[[rules]]\naction = "fixed"\naction_kelvin = true\nmatch_fullscreen = true\n',   # bool
+        '[[rules]]\naction = "fixed"\naction_kelvin = true\nmatch_fullscreen = true\n',  # bool
         '[[rules]]\naction = "disable"\naction_kelvin = 3000\nmatch_fullscreen = true\n',
-        '[[rules]]\naction = "disable"\n',                                     # matches everything
-        '[[rules]]\naction = "disable"\nmatch_fullscreen = false\n',           # matches everything
-        '[[rules]]\naction = "disable"\nmatch_app_glob = 12\n',                # glob not a string
-        '[[rules]]\naction = "disable"\nmatch_fullscreen = "yes"\n',           # not a bool
+        '[[rules]]\naction = "disable"\n',  # matches everything
+        '[[rules]]\naction = "disable"\nmatch_fullscreen = false\n',  # matches everything
+        '[[rules]]\naction = "disable"\nmatch_app_glob = 12\n',  # glob not a string
+        '[[rules]]\naction = "disable"\nmatch_fullscreen = "yes"\n',  # not a bool
         '[[rules]]\naction = "disable"\nmatch_fullscreen = true\nscope = ""\n',
         '[[rules]]\naction = "disable"\nmatch_fullscreen = true\nscope = 3\n',
     ],
@@ -716,9 +754,7 @@ def test_relative_wallpaper_path_is_rejected():
 
 def test_identical_light_and_dark_anchors_are_rejected():
     with pytest.raises(ConfigError, match="must differ"):
-        load_config(
-            _with_theme('[theme]\nlight_from = "12:00"\ndark_from = "12:00"\n')
-        )
+        load_config(_with_theme('[theme]\nlight_from = "12:00"\ndark_from = "12:00"\n'))
 
 
 def test_theme_offsets_must_be_integers():

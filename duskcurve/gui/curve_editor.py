@@ -186,8 +186,10 @@ class CurveEditor(Gtk.Box):
         if not self._kps or self._ctx is None or self._now is None:
             return
         vp = Viewport(
-            width=float(width), height=float(height),
-            min_kelvin=self._min_kelvin, max_kelvin=self._max_kelvin,
+            width=float(width),
+            height=float(height),
+            min_kelvin=self._min_kelvin,
+            max_kelvin=self._max_kelvin,
         )
         kps = self._active_kps()
         ctx = self._ctx

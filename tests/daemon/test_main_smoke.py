@@ -12,6 +12,7 @@ to the real session bus only if TestDBus can't come up and
 $DBUS_SESSION_BUS_ADDRESS is set. Skips cleanly (not a failure) if neither is
 reachable in this environment.
 """
+
 import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -98,8 +99,17 @@ def _call(conn, method, parameters, reply_type):
         loop.quit()
 
     conn.call(
-        BUS_NAME, OBJECT_PATH, _INTERFACE, method, parameters, reply_type,
-        Gio.DBusCallFlags.NONE, 5000, None, _done, None,
+        BUS_NAME,
+        OBJECT_PATH,
+        _INTERFACE,
+        method,
+        parameters,
+        reply_type,
+        Gio.DBusCallFlags.NONE,
+        5000,
+        None,
+        _done,
+        None,
     )
     loop.run()
     return result

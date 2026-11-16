@@ -20,7 +20,7 @@ def test_removes_every_artifact_the_installer_created(sandbox):
 def test_restores_night_light_when_it_was_on(sandbox):
     sandbox.set_gsettings(*NIGHT_LIGHT.split(), "true")
     sandbox.run("install.sh")
-    sandbox.set_gsettings(*NIGHT_LIGHT.split(), "false")   # as the daemon leaves it
+    sandbox.set_gsettings(*NIGHT_LIGHT.split(), "false")  # as the daemon leaves it
     sandbox.run("uninstall.sh")
     assert sandbox.gsettings_value(*NIGHT_LIGHT.split()) == "true"
 
@@ -48,7 +48,7 @@ def test_does_not_guess_night_light_without_a_state_file(sandbox):
 def test_stops_the_service_before_resetting_the_ramps(sandbox):
     """A running daemon would immediately overwrite the neutral ramps."""
     sandbox.run("install.sh")
-    sandbox.stub_log_path.write_text("")          # only look at the uninstall
+    sandbox.stub_log_path.write_text("")  # only look at the uninstall
     sandbox.run("uninstall.sh")
     log = sandbox.stub_log()
     stop_at = next(i for i, c in enumerate(log) if c.startswith("systemctl") and "disable" in c)

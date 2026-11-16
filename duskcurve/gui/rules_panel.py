@@ -85,6 +85,7 @@ _GLOB_HINT = (
     "gdbus monitor --session --dest org.duskcurve.WindowWatcher"
 )
 
+
 class _RuleRow:
     """One persistent `Adw.ActionRow` in the list.
 

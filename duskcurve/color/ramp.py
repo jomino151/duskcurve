@@ -1,4 +1,5 @@
 """Build per-channel gamma ramps from a color temperature."""
+
 from duskcurve.color.blackbody import kelvin_to_rgb
 
 _MAX = 65535

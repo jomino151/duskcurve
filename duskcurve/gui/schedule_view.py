@@ -241,9 +241,7 @@ class ScheduleView(Gtk.Box):
                 effective_keypoints(cfg), ctx, cfg.min_kelvin, cfg.max_kelvin, now
             )
 
-            self._scale.render(
-                cfg.min_kelvin, cfg.max_kelvin, self._display_kelvin(status, cfg)
-            )
+            self._scale.render(cfg.min_kelvin, cfg.max_kelvin, self._display_kelvin(status, cfg))
 
             # The global manual override lives on connector "", so it shows up
             # identically on every display -- reading the first is enough.

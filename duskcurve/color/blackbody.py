@@ -1,4 +1,5 @@
 """Kelvin -> normalized RGB white point, from redshift's blackbody table."""
+
 from duskcurve.color.blackbody_table import WHITEPOINTS
 
 _MIN_K = 1000

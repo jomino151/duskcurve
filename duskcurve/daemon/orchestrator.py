@@ -451,9 +451,7 @@ class Orchestrator:
         dc = self._config.displays.get(connector, DisplayConfig())
         return kelvin if dc.enabled else NEUTRAL_KELVIN
 
-    def _manual_entry(
-        self, connector: str, now: datetime
-    ) -> tuple[float, datetime | None] | None:
+    def _manual_entry(self, connector: str, now: datetime) -> tuple[float, datetime | None] | None:
         """The manual override in force for `connector`, with its expiry.
 
         A per-connector entry beats the global ("") one. Evicts entries it

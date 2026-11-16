@@ -230,17 +230,13 @@ class ThemeView(Gtk.Box):
 
         return anchor_row, offset_row, custom_row
 
-    def _build_variant_group(
-        self, title: str, key: str, widgets: dict
-    ) -> Adw.PreferencesGroup:
+    def _build_variant_group(self, title: str, key: str, widgets: dict) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup(title=title)
 
         color_row = Adw.ComboRow(
             title="Color scheme", model=Gtk.StringList.new(list(_COLOR_SCHEME_LABELS))
         )
-        color_row.connect(
-            "notify::selected", self._on_variant_combo_changed, key, "color_scheme"
-        )
+        color_row.connect("notify::selected", self._on_variant_combo_changed, key, "color_scheme")
         group.add(color_row)
         widgets["color_scheme"] = (
             color_row,

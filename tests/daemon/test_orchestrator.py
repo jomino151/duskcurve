@@ -326,7 +326,7 @@ def test_rule_disables_only_the_window_monitor():
     be, t, orch = _new(_fs_disable_cfg(), clock)
     orch.tick()
     night_dp2 = orch.status()["per_display"][0]["current_k"]
-    assert night_dp2 < NEUTRAL_KELVIN          # the schedule is warming at 23:00
+    assert night_dp2 < NEUTRAL_KELVIN  # the schedule is warming at 23:00
 
     orch.set_window_state(WindowState("org.game.Game", True, "DP-2"))
     orch.tick()
@@ -655,9 +655,7 @@ def test_status_keeps_every_pre_m6_key():
 
 
 def _k(orch, connector="DP-2") -> float:
-    return next(d for d in orch.status()["per_display"] if d["connector"] == connector)[
-        "current_k"
-    ]
+    return next(d for d in orch.status()["per_display"] if d["connector"] == connector)["current_k"]
 
 
 def test_pausing_reaches_neutral_in_one_tick_not_gradually():
@@ -750,8 +748,7 @@ def test_reenabling_mid_transition_rejoins_the_sibling_not_the_endpoint():
     warm = replace(
         cfg,
         displays={
-            c: DisplayConfig(override_kind="fixed", override_value=2700)
-            for c in ("DP-2", "HDMI-1")
+            c: DisplayConfig(override_kind="fixed", override_value=2700) for c in ("DP-2", "HDMI-1")
         },
     )
     orch.set_config(warm)
@@ -766,9 +763,7 @@ def test_reenabling_mid_transition_rejoins_the_sibling_not_the_endpoint():
         warm,
         displays={
             **warm.displays,
-            "DP-2": DisplayConfig(
-                enabled=False, override_kind="fixed", override_value=2700
-            ),
+            "DP-2": DisplayConfig(enabled=False, override_kind="fixed", override_value=2700),
         },
     )
     orch.set_config(off)

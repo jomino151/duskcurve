@@ -114,8 +114,7 @@ def resolve_rules(
                 continue
             if not rule_matches(rule, window_):
                 continue
-            affected = [c for c in _affected(rule, window_, connectors)
-                        if result[c] is NO_ACTION]
+            affected = [c for c in _affected(rule, window_, connectors) if result[c] is NO_ACTION]
             if not affected:
                 continue
             action = _action_for(rule, day_kelvin)

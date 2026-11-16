@@ -3,6 +3,7 @@
 Provenance: redshift (GPL-3.0) src/colorramp.c `blackbody_color`, 3 floats per
 100 K from 1000 K. Run once: `python tools/gen_blackbody.py` (needs network).
 """
+
 import pathlib
 import re
 import urllib.request

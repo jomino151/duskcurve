@@ -1,4 +1,5 @@
 """Enumerate monitors and drive per-CRTC gamma via a MutterTransport."""
+
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -12,9 +13,9 @@ from duskcurve.color import build_ramp
 
 @dataclass(frozen=True)
 class Display:
-    connector: str      # e.g. "DP-2"
-    crtc_id: int        # id passed to Get/SetCrtcGamma
-    ramp_size: int      # gamma ramp length for this CRTC
+    connector: str  # e.g. "DP-2"
+    crtc_id: int  # id passed to Get/SetCrtcGamma
+    ramp_size: int  # gamma ramp length for this CRTC
 
 
 class MutterBackend:
@@ -74,17 +75,13 @@ class MutterBackend:
         StaleSerialError propagates to the caller."""
         d = self._display(connector)
         try:
-            self._t.call(
-                "SetCrtcGamma", (self._serial, d.crtc_id, red, green, blue)
-            )
+            self._t.call("SetCrtcGamma", (self._serial, d.crtc_id, red, green, blue))
         except StaleSerialError:
             self._refresh()
             d = self._display(connector)
-            self._t.call(
-                "SetCrtcGamma", (self._serial, d.crtc_id, red, green, blue)
-            )
+            self._t.call("SetCrtcGamma", (self._serial, d.crtc_id, red, green, blue))
 
     def reset(self, connector: str) -> None:
         size = self._display(connector).ramp_size
-        red, green, blue = build_ramp(size, 6500)   # 6500K whitepoint (1,1,1) => identity ramp
+        red, green, blue = build_ramp(size, 6500)  # 6500K whitepoint (1,1,1) => identity ramp
         self.apply_ramp(connector, red, green, blue)

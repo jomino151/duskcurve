@@ -182,9 +182,7 @@ def parse_status(json_text: str) -> Status:
     windows_entries = raw.get("windows")
     windows: tuple[WindowStatus, ...]
     if isinstance(windows_entries, list):
-        windows = tuple(
-            w for w in (_parse_window(e) for e in windows_entries) if w is not None
-        )
+        windows = tuple(w for w in (_parse_window(e) for e in windows_entries) if w is not None)
     else:
         windows = (window,) if window is not None else ()
 

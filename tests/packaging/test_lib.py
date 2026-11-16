@@ -45,7 +45,7 @@ def test_paths_fall_back_to_the_default_xdg_locations(sandbox):
 
 def test_state_set_then_get_round_trips(sandbox):
     out = source(
-        sandbox, 'state_set night_light_was_enabled true; state_get night_light_was_enabled'
+        sandbox, "state_set night_light_was_enabled true; state_get night_light_was_enabled"
     )
     assert out.stdout.strip() == "true"
 
@@ -53,7 +53,7 @@ def test_state_set_then_get_round_trips(sandbox):
 def test_state_set_upserts_rather_than_appending(sandbox):
     """Re-running the installer must not leave two values for one key --
     state_get would then return whichever the parser happened to hit first."""
-    source(sandbox, 'state_set install_mode copy; state_set install_mode dev')
+    source(sandbox, "state_set install_mode copy; state_set install_mode dev")
     text = (sandbox.data / "duskcurve" / "install-state").read_text()
     assert len(re.findall(r"^install_mode=", text, re.M)) == 1
     assert source(sandbox, "state_get install_mode").stdout.strip() == "dev"

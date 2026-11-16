@@ -61,7 +61,7 @@ def x_to_minutes(x: float, vp: Viewport) -> float:
 def kelvin_to_y(kelvin: float, vp: Viewport) -> float:
     span = max(1e-9, vp.max_kelvin - vp.min_kelvin)
     frac = (kelvin - vp.min_kelvin) / span
-    return vp.bottom - frac * vp.plot_height       # max_kelvin at the top
+    return vp.bottom - frac * vp.plot_height  # max_kelvin at the top
 
 
 def y_to_kelvin(y: float, vp: Viewport) -> float:
