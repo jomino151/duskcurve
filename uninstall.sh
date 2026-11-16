@@ -40,7 +40,7 @@ fi
 # --- 2. reset the ramps ------------------------------------------------------
 # Must run before step 6 deletes the venv. Best-effort: displays may have changed.
 if [ -x "$DUSKCURVE_VENV/bin/duskcurve-apply" ]; then
-    if "$DUSKCURVE_VENV/bin/duskcurve-apply" --temp "$NEUTRAL_KELVIN" >/dev/null 2>&1; then
+    if "$DUSKCURVE_VENV/bin/duskcurve-apply" --temp "$NEUTRAL_KELVIN" >/dev/null; then
         log "Reset the displays to ${NEUTRAL_KELVIN}K"
     else
         warn "could not reset the gamma ramps; log out and back in to clear them"
