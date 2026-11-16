@@ -6,12 +6,15 @@ fully unit-testable without a bus. Only `INTERFACE_XML` and
 """
 
 import json
+import logging
 import os
 import tempfile
 from collections.abc import Callable
 
 from duskcurve.daemon.config import Config, ConfigError, dump_config, load_config
 from duskcurve.daemon.orchestrator import Orchestrator
+
+log = logging.getLogger("duskcurve.daemon")
 
 BUS_NAME = "org.duskcurve.Daemon"
 OBJECT_PATH = "/org/duskcurve/Daemon"
@@ -185,6 +188,10 @@ def export_on_connection(service: DaemonService, connection) -> int:
             invocation.return_error_literal(
                 Gio.dbus_error_quark(), Gio.DBusError.INVALID_ARGS, str(exc)
             )
+        except Exception as exc:
+            # An unanswered call leaves the client waiting for its full timeout.
+            log.exception("D-Bus method %s failed", method_name)
+            invocation.return_error_literal(Gio.dbus_error_quark(), Gio.DBusError.FAILED, str(exc))
 
     return connection.register_object(
         OBJECT_PATH,

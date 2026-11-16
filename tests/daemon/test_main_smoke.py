@@ -133,6 +133,28 @@ def test_get_config_round_trips_over_live_dbus_dispatch(tmp_path, bus_address):
     assert toml_text == dump_config(cfg)
 
 
+def test_unexpected_handler_error_maps_to_dbus_failed(tmp_path, bus_address, monkeypatch):
+    cfg = default_config()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(dump_config(cfg))
+
+    conn = _connect(bus_address)
+    backend = MutterBackend(FakeMutterTransport())
+    orch = Orchestrator(backend, cfg, clock=lambda: datetime.now(ZoneInfo("UTC")))
+    service = DaemonService(orch, str(config_path))
+
+    def _boom():
+        raise OSError("boom")
+
+    monkeypatch.setattr(service, "get_status", _boom)
+    export_on_connection(service, conn)
+    _own_name_and_wait(conn)
+
+    result = _call(conn, "GetStatus", None, GLib.VariantType("(s)"))
+    assert "error" in result
+    assert Gio.DBusError.get_remote_error(result["error"]) == "org.freedesktop.DBus.Error.Failed"
+
+
 def test_set_config_round_trips_and_persists_over_live_dbus_dispatch(tmp_path, bus_address):
     from dataclasses import replace
 
