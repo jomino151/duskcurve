@@ -27,9 +27,9 @@ Inspired by f.lux.
 - Ubuntu 26.04, GNOME 50, Wayland.
 - Python 3.12 or newer.
 - `python3-gi` and `python3-venv`.
-- Optional: `python3-gi-cairo` for the curve editor.
+- Optional: `python3-gi-cairo` for the curve editor; the installer offers to install it.
 
-Other GNOME versions run everything except window rules, because the shell extension only loads on GNOME 50.
+Other GNOME versions are untested. The shell extension declares GNOME 50 only, so window rules do not load elsewhere.
 
 ## Install
 
@@ -39,7 +39,7 @@ cd duskcurve
 ./install.sh
 ```
 
-The installer creates a venv in `~/.local/share/duskcurve`, links `duskcurve-daemon`, `duskcurve-gui` and `duskcurve-apply` into `~/.local/bin`, installs the shell extension and a systemd user unit, and starts the daemon. Re-run it to upgrade.
+The installer creates a venv in `~/.local/share/duskcurve`, links `duskcurve-daemon`, `duskcurve-gui` and `duskcurve-apply` into `~/.local/bin`, installs the shell extension and a systemd user unit, and starts the daemon. Re-run it to upgrade. Re-run it after a distro upgrade too: it rebuilds the venv for the new system Python.
 
 | Flag | Effect |
 | --- | --- |

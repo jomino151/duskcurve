@@ -6,16 +6,32 @@ The config lives at `~/.config/duskcurve/config.toml`. The daemon reloads it whe
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `location.latitude`, `location.longitude` | `52.52`, `13.40` | Used for sunrise and sunset. |
-| `location.timezone` | `"Europe/Berlin"` | IANA timezone name. |
-| `schedule.wake`, `schedule.bedtime` | `"10:00"`, `"23:00"` | `HH:MM` anchors for the curve. |
-| `schedule.mode` | `"reduce_eyestrain"` | `recommended`, `reduce_eyestrain`, `working_late`, `classic` or `custom`. |
-| `[[schedule.keypoints]]` | none | `anchor` (`sunrise`, `sunset`, `wake`, `bedtime` or `HH:MM`), `offset_min`, `kelvin`, `easing` (`linear` or `smoothstep`). Required when `mode = "custom"`. |
+| `location.latitude`, `location.longitude` | required | Used for sunrise and sunset. |
+| `location.timezone` | required | IANA timezone name, e.g. `"Europe/Berlin"`. |
+| `schedule.wake`, `schedule.bedtime` | required | `HH:MM` anchors for the curve. |
+| `schedule.mode` | required | `recommended`, `reduce_eyestrain`, `working_late`, `classic` or `custom`. |
+| `[[schedule.keypoints]]` | none (optional) | `anchor` (`sunrise`, `sunset`, `wake`, `bedtime` or `HH:MM`), `offset_min`, `kelvin`, `easing` (`linear` or `smoothstep`). Required when `mode = "custom"`. |
 | `range.min_kelvin`, `range.max_kelvin` | `1200`, `6500` | Temperature bounds. `max_kelvin` is also the `force_day` temperature. |
 | `tick.interval_seconds` | `2.0` | How often the daemon re-evaluates. |
 | `displays.<connector>.enabled` | `true` | `false` keeps that display neutral. |
 | `displays.<connector>.override_kind` | `"none"` | `warm_cap` (never warmer than the value), `fixed` (the value in K), `offset` (mired delta, positive is warmer). |
 | `displays.<connector>.override_value` | `0.0` | Must be > 0 for `warm_cap` and `fixed`. |
+
+`[location]` and `[schedule]` are required sections, and the keys marked required must be present. The other sections and keys are optional. When no file exists, the daemon writes Berlin (52.52, 13.40, `Europe/Berlin`), wake `10:00`, bedtime `23:00` and mode `reduce_eyestrain`.
+
+A minimal valid file:
+
+```toml
+[location]
+latitude = 52.52
+longitude = 13.40
+timezone = "Europe/Berlin"
+
+[schedule]
+wake = "10:00"
+bedtime = "23:00"
+mode = "reduce_eyestrain"
+```
 
 ## Window rules
 
@@ -86,7 +102,7 @@ Off by default. When enabled, the daemon switches GNOME between a light and a da
 
 `<variant>` is `light` or `dark`. An empty string leaves that setting untouched.
 
-Theme precedence is `paused (freeze) > manual theme > theme anchors`. Rules never change the theme. A theme you pick by hand in GNOME Settings stays until the next anchor.
+Theme precedence is `paused (freeze) > manual theme > theme anchors`. Pausing leaves the current theme in place; a manual theme (set from the GUI's Light/Dark buttons) holds until it expires or is cleared. Rules never change the theme. A theme you pick by hand in GNOME Settings stays until the next anchor.
 
 Uninstalling does not restore your previous theme.
 

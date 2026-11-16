@@ -15,19 +15,19 @@ DOC_FILES = [
 
 
 def test_readme_documents_both_scripts():
-    assert "./install.sh" in README
-    assert "./uninstall.sh" in README
+    assert "./install.sh" in README_ONLY
+    assert "./uninstall.sh" in README_ONLY
 
 
 def test_readme_documents_every_flag():
     for flag in ("--dev", "--no-start", "--purge"):
-        assert flag in README
+        assert flag in README_ONLY
 
 
 def test_readme_no_longer_teaches_the_manual_procedure():
     """Two competing sets of instructions would invite the double install."""
-    assert "--break-system-packages" not in README
-    assert "ln -s" not in README
+    assert "--break-system-packages" not in README_ONLY
+    assert "ln -s" not in README_ONLY
 
 
 def test_readme_documents_the_no_record_night_light_case():
@@ -49,7 +49,9 @@ def test_readme_is_short():
 
 def test_docs_carry_no_process_or_tooling_references():
     # Bracketed letters keep this file itself clear of the words it forbids.
-    forbidden = re.compile(r"cl[a]ude|anthr[o]pic|superp[o]wers|subag[e]nt|mileston[e]", re.I)
+    forbidden = re.compile(
+        r"cl[a]ude|anthr[o]pic|superp[o]wers|subag[e]nt|mileston[e]|agent[i]c", re.I
+    )
     for path in DOC_FILES:
         found = forbidden.search(path.read_text())
         assert found is None, f"{path.name} mentions {found.group()!r}"

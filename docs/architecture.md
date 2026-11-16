@@ -32,7 +32,7 @@ flowchart LR
 | `duskcurve.schedule` | Solar events, keypoint curves, built-in modes | no |
 | `duskcurve.color` | Blackbody table, mired maths, gamma ramps, presets | no |
 | `duskcurve.theme` | Light/dark policy | no |
-| `duskcurve.daemon` | Config, rules, orchestrator, D-Bus service | only `main.py`, `watcher.py` |
+| `duskcurve.daemon` | Config, rules, orchestrator, D-Bus service | `main.py`, `watcher.py`, and `export_on_connection` in `service.py` (lazy import) |
 | `duskcurve.backend` | Mutter, GSettings and Night Light adapters | the GLib adapters |
 | `duskcurve.gui` | GTK views over pure state and editing modules | the widget modules |
 
