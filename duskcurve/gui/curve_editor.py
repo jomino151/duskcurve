@@ -176,6 +176,7 @@ class CurveEditor(Gtk.Box):
         """
         changed = new_kps != self._kps
         self._kps = new_kps
+        assert self._area is not None
         self._area.queue_draw()
         if changed:
             self._on_keypoints_changed(new_kps)
@@ -313,6 +314,7 @@ class CurveEditor(Gtk.Box):
         self._drag_start_x = x
         self._drag_start_y = y
         self._busy = True
+        assert self._area is not None
         self._area.queue_draw()
 
     def _on_drag_update(self, _gesture: Gtk.GestureDrag, offset_x: float, offset_y: float) -> None:
@@ -339,6 +341,7 @@ class CurveEditor(Gtk.Box):
                 kps = shift_keypoint_time(kps, index, delta_min)
 
         self._drag_live_kps = kps
+        assert self._area is not None
         self._area.queue_draw()
 
     def _on_drag_end(self, _gesture: Gtk.GestureDrag, _offset_x: float, _offset_y: float) -> None:
@@ -360,6 +363,7 @@ class CurveEditor(Gtk.Box):
             # config change with stale data. Abandon this drag's edit: keep
             # the externally-delivered keypoints, don't notify, just redraw
             # so the user sees the authoritative state.
+            assert self._area is not None
             self._area.queue_draw()
             return
 

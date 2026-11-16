@@ -16,4 +16,5 @@ def kelvin_to_rgb(kelvin: float) -> tuple[float, float, float]:
     hi = lo + _STEP
     frac = (k - lo) / _STEP
     a, b = WHITEPOINTS[lo], WHITEPOINTS[hi]
-    return tuple(x + (y - x) * frac for x, y in zip(a, b, strict=True))
+    r, g, bl = (x + (y - x) * frac for x, y in zip(a, b, strict=True))
+    return r, g, bl

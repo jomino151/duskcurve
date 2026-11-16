@@ -25,7 +25,7 @@ TWO RULES THIS MODULE EXISTS TO ENFORCE -- do not "simplify" either away:
 import logging
 import os
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from duskcurve.theme import ThemeVariant
 
@@ -95,9 +95,9 @@ class GioSettingsWriter:
     """The real writer. Settings objects are cached; gi is imported on first use."""
 
     def __init__(self) -> None:
-        self._cache: dict[str, object] = {}
+        self._cache: dict[str, tuple[Any, Any]] = {}
 
-    def _gio(self):
+    def _gio(self) -> Any:
         import gi
 
         gi.require_version("Gio", "2.0")
@@ -108,7 +108,7 @@ class GioSettingsWriter:
     def has_schema(self, schema: str) -> bool:
         return self._lookup_schema(schema) is not None
 
-    def _lookup_schema(self, schema: str):
+    def _lookup_schema(self, schema: str) -> Any:
         gio = self._gio()
         return gio.SettingsSchemaSource.get_default().lookup(schema, True)
 

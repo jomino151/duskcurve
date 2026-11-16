@@ -47,7 +47,7 @@ REPUSH_AFTER = timedelta(seconds=60)
 _EVENT_ANCHORS = frozenset({"sunrise", "sunset", "wake", "bedtime"})
 
 
-def _parse_anchor(anchor: str, offset_min: int):
+def _parse_anchor(anchor: str, offset_min: int) -> EventAnchor | ClockAnchor:
     if anchor in _EVENT_ANCHORS:
         return EventAnchor(anchor, offset_min)
     hour_str, minute_str = anchor.split(":")
@@ -489,6 +489,7 @@ class Orchestrator:
         if action.kind == "disable":
             return NEUTRAL_KELVIN
         if action.kind == "fixed":
+            assert action.kelvin is not None  # "fixed" actions always carry a kelvin
             return action.kelvin
 
         base = self._curve.evaluate(now, ctx)

@@ -301,7 +301,7 @@ def _validate_range(raw: dict) -> tuple[float, float]:
     return min_kelvin, max_kelvin
 
 
-def _validate_transition(raw: dict) -> tuple[float, float]:
+def _validate_transition(raw: dict) -> tuple[float, float, float]:
     try:
         seconds = float(raw.get("seconds", 20.0))
     except (TypeError, ValueError) as exc:

@@ -34,6 +34,7 @@ tracks the live min_kelvin value (plus the same margin).
 
 import dataclasses
 import logging
+from collections.abc import Callable
 from zoneinfo import available_timezones
 
 import gi
@@ -222,7 +223,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
         # poll forever, silently, because AppState._notify swallows subscriber
         # exceptions. Adw.Dialog::closed (verified against libadwaita 1.5.0)
         # is the teardown hook.
-        self._unsubscribe = self._state.subscribe(self._render)
+        self._unsubscribe: Callable[[], None] | None = self._state.subscribe(self._render)
         self.connect("closed", self._on_closed)
         self._render()
 

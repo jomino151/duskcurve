@@ -33,6 +33,7 @@ def keypoint_to_config(kp: Keypoint) -> KeypointConfig:
 
 
 def config_to_keypoint(kc: KeypointConfig) -> Keypoint:
+    anchor: EventAnchor | ClockAnchor
     if kc.anchor in EVENT_ANCHORS:
         anchor = EventAnchor(kc.anchor, kc.offset_min)
     else:

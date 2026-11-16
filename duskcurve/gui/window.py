@@ -36,6 +36,7 @@ gi.require_version("Gio", "2.0")
 
 from gi.repository import Adw, Gio, GObject, Gtk  # noqa: E402
 
+from duskcurve.daemon.config import Config  # noqa: E402
 from duskcurve.gui.client import DaemonClient  # noqa: E402
 from duskcurve.gui.display_panel import DisplayView  # noqa: E402
 from duskcurve.gui.prefs import PreferencesDialog  # noqa: E402
@@ -219,13 +220,13 @@ class DuskcurveWindow(Adw.ApplicationWindow):
         AppState needing to know about the one-time banner."""
         original_apply_config = self._state.apply_config
 
-        def wrapped(cfg):
+        def wrapped(cfg: Config) -> bool:
             ok = original_apply_config(cfg)
             if ok:
                 self._on_apply_success()
             return ok
 
-        self._state.apply_config = wrapped
+        self._state.apply_config = wrapped  # type: ignore[method-assign]  # instance-level wrap
 
     def _install_actions(self) -> None:
         preferences_action = Gio.SimpleAction.new("preferences", None)

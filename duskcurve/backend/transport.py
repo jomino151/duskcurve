@@ -5,7 +5,7 @@ this module stays gi-free so the backend logic can be unit-tested without a bus.
 """
 
 from collections.abc import Callable
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 class MutterError(Exception):
@@ -49,7 +49,7 @@ class FakeMutterTransport:
             [crtc_ids[1], 0, 0, 0, 1920, 1080, 0, 0, [0], {}],
         ]
         # output: (id, winsys, current_crtc_index, possible_crtcs, name, modes, clones, props)
-        self._outputs = [
+        self._outputs: list[list[Any]] = [
             [0, 0, 0, [0], "DP-2", [0], [], {}],
             [1, 0, 1, [1], "HDMI-1", [0], [], {}],
         ]

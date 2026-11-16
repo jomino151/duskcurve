@@ -141,7 +141,7 @@ def export_on_connection(service: DaemonService, connection) -> int:
         method_name,
         parameters,
         invocation,
-    ):
+    ) -> None:
         try:
             if method_name == "GetStatus":
                 result = service.get_status()

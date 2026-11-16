@@ -1,12 +1,28 @@
 [project]
 name = "duskcurve"
 version = "1.0.4"
-description = "GNOME/Wayland-native blue-light filter"
+description = "Circadian colour temperature for GNOME on Wayland, with an editable day curve."
+readme = "README.md"
+authors = [{ name = "Jonas Morawietz" }]
 requires-python = ">=3.12"
-license = { text = "GPL-3.0-or-later" }
+license = "GPL-3.0-or-later"
+keywords = ["gnome", "wayland", "night-light", "color-temperature", "gtk4"]
+classifiers = [
+    "Environment :: X11 Applications :: GTK",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Desktop Environment :: Gnome",
+]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.5"]
+dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.5", "mypy>=1.10"]
+
+[project.urls]
+Homepage = "https://github.com/jomino151/duskcurve"
+Issues = "https://github.com/jomino151/duskcurve/issues"
 
 [project.scripts]
 duskcurve-apply = "duskcurve.backend.cli:main"
@@ -14,7 +30,7 @@ duskcurve-daemon = "duskcurve.daemon.main:main"
 duskcurve-gui = "duskcurve.gui.app:main"
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -26,3 +42,10 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+ignore_missing_imports = true
+files = ["duskcurve"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

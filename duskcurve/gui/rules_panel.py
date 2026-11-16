@@ -438,7 +438,10 @@ class RulesView(Gtk.Box):
         index = self._live_index(row)
         if index is None:
             return
-        self._open_dialog(rule=self._state.config.rules[index], index=index)
+        cfg = self._state.config
+        if cfg is None:
+            return
+        self._open_dialog(rule=cfg.rules[index], index=index)
 
     def _open_dialog(self, rule: Rule | None, index: int | None) -> None:
         status = self._state.status
@@ -491,6 +494,8 @@ class RulesView(Gtk.Box):
         if index is None:
             return
         cfg = self._state.config
+        if cfg is None:
+            return
         try:
             new_rules = move_rule(cfg.rules, index, delta)
         except IndexError:
@@ -508,6 +513,8 @@ class RulesView(Gtk.Box):
         if index is None:
             return
         cfg = self._state.config
+        if cfg is None:
+            return
         deleted_rule = cfg.rules[index]
         try:
             new_rules = delete_rule(cfg.rules, index)

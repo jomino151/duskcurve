@@ -21,6 +21,7 @@ method, so that `import duskcurve.daemon` never pulls in `gi`.
 
 import logging
 from collections.abc import Callable, Sequence
+from typing import Any
 
 from duskcurve.daemon.rules import WindowState
 
@@ -136,7 +137,7 @@ class WindowWatcher:
         connection = Gio.bus_get_sync(Gio.BusType.SESSION, None)
         self._connection = connection
 
-        def call(method_name: str):
+        def call(method_name: str) -> Any:
             result = connection.call_sync(
                 WATCHER_BUS_NAME,
                 WATCHER_OBJECT_PATH,
@@ -151,10 +152,10 @@ class WindowWatcher:
             unpacked = result.unpack()
             return unpacked[0] if len(unpacked) == 1 else unpacked
 
-        def on_appeared(_connection, _name, _name_owner):
+        def on_appeared(_connection, _name, _name_owner) -> None:
             self._negotiate(call)
 
-        def on_vanished(_connection, _name):
+        def on_vanished(_connection, _name) -> None:
             self._modern = False
             self._deliver(None, ())
 
@@ -165,7 +166,7 @@ class WindowWatcher:
             _interface_name,
             _signal_name,
             parameters,
-        ):
+        ) -> None:
             try:
                 app_id, fullscreen, connector = parameters.unpack()
             except Exception:
@@ -180,7 +181,7 @@ class WindowWatcher:
             _interface_name,
             _signal_name,
             parameters,
-        ):
+        ) -> None:
             try:
                 entries = parameters.unpack()[0]
             except Exception:

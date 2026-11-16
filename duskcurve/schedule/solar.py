@@ -27,7 +27,9 @@ def solar_events(lat: float, lon: float, day: date, tz: tzinfo) -> SolarEvents:
     raises `ValueError` -- such latitudes are out of scope for this function.
     """
     noon_local = datetime(day.year, day.month, day.day, 12, tzinfo=tz)
-    tz_hours = noon_local.utcoffset().total_seconds() / 3600
+    offset = noon_local.utcoffset()
+    assert offset is not None  # tz is always a fixed zone here
+    tz_hours = offset.total_seconds() / 3600
 
     year, month = day.year, day.month
     if month <= 2:

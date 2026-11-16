@@ -36,12 +36,15 @@ def _build_state_and_client() -> tuple[AppState, DaemonClient]:
     state_box: list[AppState | None] = [None]
 
     def on_status(payload: str) -> None:
+        assert state_box[0] is not None
         state_box[0].set_status_text(payload)
 
     def on_config(payload: str) -> None:
+        assert state_box[0] is not None
         state_box[0].set_config_text(payload)
 
     def on_connected(connected: bool) -> None:
+        assert state_box[0] is not None
         state_box[0].set_connected(connected)
 
     client = DaemonClient(on_status=on_status, on_config=on_config, on_connected=on_connected)

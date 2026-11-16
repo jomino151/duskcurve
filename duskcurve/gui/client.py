@@ -8,6 +8,7 @@ imports inside the methods, so `import duskcurve.gui` never pulls in gi.
 
 import logging
 from collections.abc import Callable
+from typing import Any
 
 from duskcurve.daemon.service import BUS_NAME, OBJECT_PATH
 
@@ -44,15 +45,15 @@ class DaemonClient:
         connection = Gio.bus_get_sync(Gio.BusType.SESSION, None)
         self._connection = connection
 
-        def on_appeared(_connection, _name, _owner):
+        def on_appeared(_connection, _name, _owner) -> None:
             self._safe(self._on_connected, True)
             self.refresh()
 
-        def on_vanished(_connection, _name):
+        def on_vanished(_connection, _name) -> None:
             self.stop_polling()
             self._safe(self._on_connected, False)
 
-        def on_status_changed(_c, _sender, _path, _iface, _signal, parameters):
+        def on_status_changed(_c, _sender, _path, _iface, _signal, parameters) -> None:
             try:
                 (payload,) = parameters.unpack()
             except Exception:
@@ -99,7 +100,7 @@ class DaemonClient:
 
     # -- calls ----------------------------------------------------------
 
-    def _call(self, method: str, parameters, reply_type: str | None = None):
+    def _call(self, method: str, parameters, reply_type: str | None = None) -> Any:
         import gi
 
         gi.require_version("GLib", "2.0")
@@ -120,7 +121,7 @@ class DaemonClient:
             None,
         )
 
-    def _variant(self, fmt: str, values: tuple):
+    def _variant(self, fmt: str, values: tuple) -> Any:
         import gi
 
         gi.require_version("GLib", "2.0")

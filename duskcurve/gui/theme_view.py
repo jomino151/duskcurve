@@ -38,6 +38,7 @@ render so it stays visible and selected.
 
 import dataclasses
 import logging
+from typing import Any
 
 import gi
 
@@ -434,8 +435,9 @@ class ThemeView(Gtk.Box):
             anchor = default_custom
         if anchor == current:
             return
+        changes: dict[str, Any] = {from_field: anchor}
         self._state.apply_config(
-            dataclasses.replace(cfg, theme=dataclasses.replace(cfg.theme, **{from_field: anchor}))
+            dataclasses.replace(cfg, theme=dataclasses.replace(cfg.theme, **changes))
         )
 
     def _on_offset_changed(self, row: Adw.SpinRow, key: str) -> None:
@@ -448,8 +450,9 @@ class ThemeView(Gtk.Box):
         value = int(row.get_value())
         if value == getattr(cfg.theme, offset_field):
             return
+        changes: dict[str, Any] = {offset_field: value}
         self._state.apply_config(
-            dataclasses.replace(cfg, theme=dataclasses.replace(cfg.theme, **{offset_field: value}))
+            dataclasses.replace(cfg, theme=dataclasses.replace(cfg.theme, **changes))
         )
 
     def _on_custom_apply(self, row: Adw.EntryRow, key: str) -> None:
@@ -468,8 +471,9 @@ class ThemeView(Gtk.Box):
         anchor = f"{hour:02d}:{minute:02d}"
         if anchor == current:
             return
+        changes: dict[str, Any] = {from_field: anchor}
         self._state.apply_config(
-            dataclasses.replace(cfg, theme=dataclasses.replace(cfg.theme, **{from_field: anchor}))
+            dataclasses.replace(cfg, theme=dataclasses.replace(cfg.theme, **changes))
         )
 
     # -- variants -------------------------------------------------------------
