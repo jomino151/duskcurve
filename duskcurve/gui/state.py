@@ -1,10 +1,7 @@
-"""The GUI's single source of local truth.
+"""The GUI's single source of local truth, free of gi imports.
 
-No gi. Mirrors the last config and status the daemon reported; views build a new Config and
-call apply_config() rather than mutating it. Subscribers are plain callables.
-
-`last_error` is set by a failed parse or a rejected apply, and cleared only by a successful
-apply_config() or clear_error(), so an error persists until shown.
+Mirrors the last config and status the daemon reported; views call apply_config() rather than
+mutating it. `last_error` persists until a successful apply_config() or clear_error().
 """
 
 import logging

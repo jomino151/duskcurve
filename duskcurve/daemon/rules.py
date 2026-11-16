@@ -73,21 +73,11 @@ def resolve_rules(
     day_kelvin: float = 6500.0,
     unfocused: Sequence[WindowState] = (),
 ) -> dict[str, RuleAction]:
-    """Resolve the first matching rule (if any) into a per-connector action mapping.
+    """Resolve the first matching rule into a per-connector action; every connector is a key.
 
-    Every connector in `connectors` is always a key of the returned dict, defaulting to
-    NO_ACTION. If `window` is None or has an empty app_id, all connectors get NO_ACTION.
-    Otherwise the first rule in `rules` for which `rule_matches` is True wins; its scope
-    determines which connectors receive the computed action.
-
-    If `unfocused` is non-empty, rules with `match_unfocused=True` may then fill in any
-    connector still at NO_ACTION using the fullscreen windows in `unfocused`; a focused
-    window's decision is never overwritten. Rules are scanned in order, and within a rule,
-    `unfocused` windows are scanned in order, so rule order (not window order) breaks ties
-    between competing fullscreen windows.
-
-    Raises:
-        ValueError: If a winning rule's action is not one of "disable", "force_day", "fixed".
+    Connectors default to NO_ACTION. Rules with `match_unfocused` may then fill connectors still
+    at NO_ACTION from the `unfocused` fullscreen windows, never overriding the focused window's
+    decision; rule order breaks ties. Raises ValueError for an invalid action.
     """
     result = {connector: NO_ACTION for connector in connectors}
 

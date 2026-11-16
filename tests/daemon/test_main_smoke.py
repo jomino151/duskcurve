@@ -2,6 +2,7 @@
 
 Covers Variant packing and ConfigError-to-D-Bus-error mapping, which test_service.py never
 touches. Uses a private Gio.TestDBus bus, falling back to the session bus, else skips.
+The private bus keeps it clear of any running daemon.
 """
 
 import os

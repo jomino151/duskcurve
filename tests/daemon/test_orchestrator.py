@@ -189,7 +189,7 @@ def test_pause_and_unpause():
 
 
 def test_easing_lands_strictly_between_old_and_target():
-    # A manual set eases at manual_transition_seconds, not the (deliberately slow) schedule pace.
+    # A manual set eases at manual_transition_seconds, not the slower schedule pace.
     cfg = replace(default_config(), transition_seconds=60.0)
     clock = FakeClock(_dt(13, 0))
     be, _t, orch = _new(cfg, clock)
@@ -431,7 +431,7 @@ def test_status_reports_window_and_rule_action():
     assert per["HDMI-1"]["rule_action"] == {"kind": "none", "kelvin": None}
 
 
-def test_m4_status_keys_are_unchanged():
+def test_default_status_keys_are_present():
     clock = FakeClock(_dt(23, 0))
     be, t, orch = _new(default_config(), clock)
     st = orch.status()
@@ -504,7 +504,7 @@ def test_rule_transition_seconds_eases_when_configured():
 def test_instant_rule_does_not_speed_up_non_rule_changes():
     """Instant pacing applies only to rule changes: a per-display override edit still eases.
 
-    A manual temp is not used here because its own pace settles within one tick.
+    A manual temp is not used here because its 2s manual pace settles within one 2s tick.
     """
     cfg = replace(default_config(), transition_seconds=20.0, rules=())
     clock = FakeClock(_dt(23, 0))
@@ -610,7 +610,7 @@ def test_clear_manual_temp_clears_manual_k():
     assert orch.status()["per_display"][0]["manual_k"] is None
 
 
-def test_status_keeps_every_pre_m6_key():
+def test_status_keeps_every_original_key():
     cfg = replace(default_config(), transition_seconds=0.0)
     clock = FakeClock(_dt(13, 0))
     be, _t, orch = _new(cfg, clock)

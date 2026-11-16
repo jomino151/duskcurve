@@ -24,7 +24,8 @@ def duration_for_index(index: int) -> int:
     """Map a ComboRow selection to `duration_min`, tolerating "no selection".
 
     `Adw.ComboRow.get_selected()` returns `Gtk.INVALID_LIST_POSITION` (0xFFFFFFFF) when nothing
-    is selected. Anything out of range falls back to 0, "until cleared".
+    is selected. Anything out of range falls back to 0, "until cleared" (an IndexError in a GTK
+    handler would escape the error toast).
     """
     if 0 <= index < len(DURATION_MINUTES):
         return DURATION_MINUTES[index]

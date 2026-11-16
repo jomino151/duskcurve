@@ -1,12 +1,7 @@
 """The Rules view: app and window rules that override the schedule.
 
-Order is semantics: `resolve_rules` is first-match-wins, so the list shows each rule's position,
-offers move up/down, and marks the rule currently winning for the focused window.
-
-`_rendering` is set while the list is synced and held for whole handler bodies, because
-`AppState.set_error()` re-enters `_render()`. `_render()` does nothing while the modal add/edit
-dialog is open, so a poll cannot reorder rows under the index the dialog captured. Rows persist
-across polls (keeping focus and hover), so every row handler goes through `_live_index`.
+Order is semantics (`resolve_rules` is first-match-wins), so rows show their position.
+`_render()` is a no-op while the add/edit dialog is open, so a poll cannot reorder its rows.
 """
 
 import logging

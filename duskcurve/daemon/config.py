@@ -78,10 +78,8 @@ class Config:
     transition_seconds: float = 20.0
     # Easing time for a window-rule change; 0 = instant.
     rule_transition_seconds: float = 0.0
-    # Easing time for a manual temperature set or clear.
-    # A time constant, not a duration: each tick closes min(1, dt / seconds) of the
-    # remaining gap, so the approach is exponential. With the default 2 s tick,
-    # 2.0 closes the gap in one tick while 3.0 takes about 8 s.
+    # Easing for a manual set or clear: a time constant, not a duration. Each tick closes
+    # min(1, dt / seconds) of the gap; with a 2 s tick, 2.0 closes it in one tick, 3.0 in ~8 s.
     manual_transition_seconds: float = 2.0
     tick_interval_seconds: float = 2.0
     displays: dict[str, DisplayConfig] = field(default_factory=dict)  # keyed by connector

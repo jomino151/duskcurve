@@ -101,7 +101,6 @@ export class WindowTracker {
 
     // Fullscreen windows that are visible now; the caller maps them to app ids and
     // connectors.
-    // connector; this class only decides *which* windows qualify.
     visibleFullscreenWindows() {
         const result = [];
 

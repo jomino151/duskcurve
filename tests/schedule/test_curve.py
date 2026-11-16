@@ -178,7 +178,7 @@ def test_walk_minutes_is_non_decreasing_and_keeps_authored_order():
 
 
 def test_walk_minutes_clamps_an_inverted_keypoint_instead_of_reordering():
-    # bedtime lands BEFORE sunset -- a real high-latitude / late-sunset case.
+    # Bedtime lands before sunset: a real high-latitude, late-sunset case.
     ctx = _ctx(
         sunset=datetime(2026, 7, 29, 22, 0),
         bedtime=datetime(2026, 7, 29, 21, 0),

@@ -63,7 +63,7 @@ def walk_minutes(keypoints: Sequence[Keypoint], ctx: DayContext) -> list[float]:
     """Resolve keypoints to a monotonic non-decreasing walk around the day.
 
     Keypoints are an ordered walk, not a sortable set: event anchors move
-    seasonally and can invert. Each time is pushed forward by whole days to
+    seasonally and can invert. Each time is pushed forward by whole days until it is at or after
     the first keypoint's time, then clamped up to the running time (a
     zero-length segment) rather than reordered.
     """

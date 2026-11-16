@@ -295,7 +295,7 @@ class ScheduleView(Gtk.Box):
             return
         hour, minute = parsed
         wake = f"{hour:02d}:{minute:02d}"
-        # Focus-leave calls this unconditionally; skip no-op writes.
+        # Enter fires apply then focus-leave; skip the no-op second write.
         if wake == cfg.wake:
             return
         self._state.apply_config(dataclasses.replace(cfg, wake=wake))

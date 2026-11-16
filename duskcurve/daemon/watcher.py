@@ -1,13 +1,7 @@
 """Consumer for the org.duskcurve.WindowWatcher D-Bus service.
 
-The GNOME Shell extension owning that name is often absent (not installed, disabled, shell
-restarted); that is a normal state and reports `on_change(None, ())`.
-
-A modern extension exports GetWindows/WindowsChanged (focused window plus visible fullscreen
-unfocused ones); an older one only GetState/FocusChanged. The watcher tries the modern method
-first and falls back on any error. Both signals are subscribed up front so nothing is lost
-during negotiation; `_modern` selects which payload is acted on. Only `start()` imports `gi`,
-lazily, so `import duskcurve.daemon` never pulls it in.
+The extension owning that name is often absent; that is normal and reports `on_change(None, ())`.
+Protocol negotiation is in `_negotiate`. Only `start()` imports `gi`, lazily.
 """
 
 import logging

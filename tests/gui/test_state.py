@@ -173,7 +173,7 @@ def test_successful_set_status_text_does_not_clear_apply_error():
     st.set_config_text(dump_config(default_config()))
     st.apply_config(default_config())
     assert st.last_error is not None
-    # A subsequent status update must NOT clear the error
+    # A later status update does not clear the error.
     st.set_status_text(GOOD_STATUS)
     assert st.last_error is not None
 
@@ -187,7 +187,7 @@ def test_successful_set_config_text_does_not_clear_apply_error():
     st.set_config_text(dump_config(original))
     st.apply_config(original)
     assert st.last_error is not None
-    # A subsequent config update must NOT clear the error
+    # A later config update does not clear the error.
     st.set_config_text(dump_config(original))
     assert st.last_error is not None
 

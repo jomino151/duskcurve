@@ -280,7 +280,8 @@ class _ProducerThread(threading.Thread):
     """Runs the stub producer on its own thread with its own GMainContext.
 
     WindowWatcher.start() makes a synchronous GetState call from the default context; a producer
-    served by that same context would deadlock, as the real extension (a separate process) cannot.
+    served by that same context would deadlock. The real extension is a separate process, so the
+    stub gets its own thread.
     """
 
     def __init__(self, bus_address: str, iface_xml: str, get_state_seed: tuple) -> None:

@@ -155,10 +155,9 @@ class _Daemon:
         # the orchestrator's clock follows a changed timezone.
         self.config = load_config(self.service.get_config())
 
-        # Record the on-disk bytes (a SetConfig writes the client's exact text, not our
-        # serialisation) as applied, so the file-monitor event for our own write is
-        # skipped. Only for daemon-written changes: a window event must use
-        # _emit_status_signal, or it could mask a just-saved external edit.
+        # Record the on-disk bytes (the client's exact SetConfig text) as applied, so the
+        # file-monitor event for our own write is skipped. Window events must use
+        # _emit_status_signal instead, or they could mask a just-saved external edit.
         try:
             with open(self.config_path, encoding="utf-8") as f:
                 self._config_watch.note_current_state(f.read())

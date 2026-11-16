@@ -1,13 +1,7 @@
 """The Theme page: automatic light/dark desktop switching plus a manual override.
 
-`_rendering` is set for the whole of `_render()` and every handler returns early when it is set;
-focused offset spin rows and custom-time entries are not rewritten while being edited.
-
-`Adw.EntryRow::apply` fires only when `show-apply-button` is True, and not on focus-out, so the
-custom-time rows set it and also commit on focus-leave.
-
-A configured theme name missing from the local scan (hand-edited, or since removed) is appended
-to the row's options by `_ensure_option`, so it stays visible instead of reading "Leave alone".
+`_rendering` guards every handler while `_render()` runs; focused rows are not rewritten.
+`Adw.EntryRow::apply` skips focus-out, so the custom-time rows also commit on focus-leave.
 """
 
 import dataclasses

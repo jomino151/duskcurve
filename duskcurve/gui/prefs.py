@@ -1,11 +1,7 @@
 """The Preferences dialog: Location, Temperature and Timing settings.
 
-`_rendering` is set while store values are pushed into widgets and held for whole handler
-bodies (`AppState.set_error()` re-enters `_render()`). Focused spin rows and entries are not
-rewritten, so the status poll does not fight an edit.
-
-min_kelvin and max_kelvin must satisfy `min < max`, so each render reshapes the adjustment
-bounds to make an invalid pair impossible to enter.
+`_rendering` guards every handler while store values are pushed into widgets; focused rows are
+not rewritten. Each render reshapes the min/max kelvin bounds so `min < max` cannot be violated.
 """
 
 import dataclasses

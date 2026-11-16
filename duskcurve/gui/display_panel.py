@@ -4,6 +4,7 @@ Groups are rebuilt only when the set of connectors changes; a status poll update
 widgets in place. As in `schedule_view`, `_rendering` is set while store values are pushed into
 widgets and every outbound handler returns early when it is set. It is held for the whole
 handler body because `AppState.set_error()` notifies subscribers and so re-enters `_render()`.
+A value row being edited is not rewritten.
 """
 
 import dataclasses

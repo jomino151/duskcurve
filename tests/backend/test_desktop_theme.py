@@ -89,7 +89,7 @@ def test_relative_wallpaper_path_is_skipped_not_raised():
 
 
 def test_missing_key_skips_only_that_element_and_never_writes_it():
-    # The schema exists but lacks the key (e.g. no 'color-scheme' on older GNOME).
+    # The schema exists (has_schema is True) but lacks the key, e.g. 'color-scheme' before GNOME 42.
     w = FakeSettingsWriter(missing_keys={(INTERFACE_SCHEMA, "color-scheme")})
     skipped = _applier(w).apply(FULL)
     assert skipped == ["color_scheme"]

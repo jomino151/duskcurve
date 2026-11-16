@@ -1,14 +1,7 @@
 """Apply a ThemeVariant to the GNOME desktop by writing GSettings keys.
 
-gi is imported lazily inside GioSettingsWriter, so importing this module needs no display.
-
-Two constraints shape it:
-- It never shells out to `gnome-extensions` or checks the shell's extension state: the shell
-  disables user extensions on the lock screen, exactly when a scheduled switch fires unattended.
-  dconf writes land regardless of lock state.
-- It checks that both the schema and the key exist before every write: Gio.Settings.new() on an
-  uninstalled schema and set_string() on an unknown key call g_error(), which aborts the process
-  with no Python exception to catch.
+Ignores the shell's extension state, which is off on the lock screen; dconf writes still land.
+Checks schema and key exist before each write, since Gio aborts on an unknown one.
 """
 
 import logging

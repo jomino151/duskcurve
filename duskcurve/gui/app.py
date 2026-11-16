@@ -1,6 +1,6 @@
 """GUI entry point: the `duskcurve-gui` console script.
 
-Like `window.py`, it imports `gi` at module scope, so nothing in the gi-free modules imports it.
+Like `window.py`, it imports `gi` at module scope; the gi-free modules never import it.
 """
 
 import sys

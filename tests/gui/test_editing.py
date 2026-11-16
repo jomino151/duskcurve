@@ -375,8 +375,7 @@ def test_move_by_zero_is_a_no_op():
 
 
 def test_reordering_changes_which_rule_wins():
-    # The behavioural reason order is load-bearing, asserted against the real
-    # resolver rather than assumed.
+    # Rule order matters because it decides which rule wins; checked against the real resolver.
     window = WindowState(app_id="org.gimp.GIMP", fullscreen=True, monitor_connector="DP-2")
     rules = (R0, R1)  # fullscreen-disable first
     assert resolve_rules(window, rules, ["DP-2"])["DP-2"].kind == "disable"

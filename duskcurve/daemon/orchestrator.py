@@ -78,10 +78,8 @@ class Orchestrator:
         self._theme_applier = theme_applier
         self._theme_mode: str | None = None
         self._theme_manual: tuple[str, datetime | None] | None = None
-        # Easing pace per connector, by what caused the change: "schedule" (curve
-        # drift, the default), "manual" (temp set/clear), "toggle" (pause/unpause,
-        # instant) or "rule" (a window rule engaging or releasing). Reset to
-        # "schedule" on convergence, so a multi-tick transition keeps its rate.
+        # Easing pace per connector: "schedule" (default), "manual", "toggle" (instant) or
+        # "rule". Reset to "schedule" on convergence, so a multi-tick transition keeps its rate.
         self._pacing: dict[str, str] = {}
         # connector -> (kelvin, ramp, pushed_at) of the last SUCCESSFUL push.
         self._pushed: dict[str, tuple[float, tuple[list[int], list[int], list[int]], datetime]] = {}
@@ -89,8 +87,8 @@ class Orchestrator:
     def set_config(self, config: Config) -> None:
         # `enabled` needs no pacing entry: it masks the output after easing.
         if config.theme != self._config.theme:
-            # Forget the applied mode so the next tick re-applies: any [theme]
-            # edit takes effect immediately.
+            # Forget the applied mode so the next tick re-applies. Whole-section on purpose: any
+            # [theme] edit, even to the inactive variant, takes effect immediately.
             self._theme_mode = None
         self._config = config
         self._curve = self._build_curve(config)

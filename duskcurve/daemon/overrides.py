@@ -4,18 +4,10 @@ from duskcurve.color import kelvin_to_mired, mired_to_kelvin
 
 
 def apply_override(target_kelvin: float, kind: str, value: float) -> float:
-    """Apply an override to a target Kelvin temperature.
+    """Apply an override ("none", "warm_cap", "fixed" or "offset") to a target Kelvin.
 
-    Args:
-        target_kelvin: The target color temperature in Kelvin.
-        kind: The type of override ("none", "warm_cap", "fixed", "offset").
-        value: The override value; interpretation depends on kind.
-
-    Returns:
-        The adjusted Kelvin temperature.
-
-    Raises:
-        ValueError: If kind is not recognized.
+    `value` is the cap or fixed Kelvin, or the mired delta for "offset". Raises ValueError for
+    an unknown kind.
     """
     if kind == "none":
         return target_kelvin
