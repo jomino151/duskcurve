@@ -8,7 +8,7 @@ from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from duskcurve.backend import MutterBackend
+from duskcurve.backend import MutterBackend, MutterError
 from duskcurve.color import build_ramp, kelvin_to_mired, mired_to_kelvin
 from duskcurve.daemon.config import Config, DisplayConfig
 from duskcurve.daemon.overrides import apply_override
@@ -204,7 +204,10 @@ class Orchestrator:
 
             self._current_k[connector] = current_k
             applied_k = self._apply_enabled_mask(connector, current_k)
-            self._push(connector, display.ramp_size, applied_k, now)
+            try:
+                self._push(connector, display.ramp_size, applied_k, now)
+            except MutterError as exc:
+                log.warning("could not set the gamma ramp on %s: %s", connector, exc)
 
         self._last_tick_dt = now
         self._tick_theme(now, ctx)

@@ -4,7 +4,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from duskcurve.backend import FakeMutterTransport, MutterBackend
+from duskcurve.backend import FakeMutterTransport, MutterBackend, MutterError
 from duskcurve.daemon.config import ThemeConfig, default_config
 from duskcurve.daemon.orchestrator import Orchestrator
 from duskcurve.theme import DARK, LIGHT, ThemeVariant
@@ -214,3 +214,16 @@ def test_custom_anchors_are_honoured():
     clock.set(_dt(8, 0))
     orch.tick()
     assert applier.applied == [DARK_V, LIGHT_V]
+
+
+def test_theme_still_applies_when_a_display_fails():
+    class Failing(MutterBackend):
+        def apply_ramp(self, connector, red, green, blue):
+            raise MutterError("no gamma")
+
+    applier = RecordingApplier()
+    orch = Orchestrator(
+        Failing(FakeMutterTransport()), _cfg(), FakeClock(_dt(13, 0)), theme_applier=applier
+    )
+    orch.tick()
+    assert applier.applied == [LIGHT_V]

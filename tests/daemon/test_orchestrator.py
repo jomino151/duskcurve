@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from duskcurve.backend import FakeMutterTransport, MutterBackend
+from duskcurve.backend import FakeMutterTransport, MutterBackend, MutterError
 from duskcurve.color import build_ramp
 from duskcurve.daemon.config import DisplayConfig, default_config
 from duskcurve.daemon.orchestrator import NEUTRAL_KELVIN, Orchestrator
@@ -1186,3 +1186,35 @@ def test_the_periodic_repush_reuses_the_ramp_instead_of_rebuilding(monkeypatch):
         clock.advance(2)
     assert len(t.set_calls) == 4
     assert len(builds) == 2
+
+
+class _FlakyBackend(MutterBackend):
+    """Raises MutterError from apply_ramp for the connectors in `failing`."""
+
+    def __init__(self, transport):
+        super().__init__(transport)
+        self.failing: set[str] = set()
+
+    def apply_ramp(self, connector, red, green, blue):
+        if connector in self.failing:
+            raise MutterError(f"cannot set gamma on {connector}")
+        super().apply_ramp(connector, red, green, blue)
+
+
+def test_a_failing_display_does_not_stop_the_others(caplog):
+    cfg = replace(default_config(), transition_seconds=0.0)
+    clock = FakeClock(_dt(3, 0))
+    be = _FlakyBackend(FakeMutterTransport(ramp_size=4096))
+    orch = Orchestrator(be, cfg, clock)
+    be.failing = {"DP-2"}
+
+    orch.tick()
+
+    assert be.get_gamma("HDMI-1") == build_ramp(4096, 2700)
+    assert be.get_gamma("DP-2") == build_ramp(4096, 6500)
+    assert "DP-2" in caplog.text
+
+    be.failing = set()
+    clock.advance(1)
+    orch.tick()
+    assert be.get_gamma("DP-2") == build_ramp(4096, 2700)
