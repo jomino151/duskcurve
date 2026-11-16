@@ -81,7 +81,7 @@ def test_classic_deep_overnight_is_night_hold():
 
 def test_default_curve_with_real_solar_events_repro_config():
     # Repro: wake 07:00, bedtime 22:00, real Berlin summer solstice sunset
-    # (~21:38), which lands *after* bedtime -- the inversion that broke the
+    # (~21:33), which lands *after* bedtime -- the inversion that broke the
     # old sort-by-resolved-time evaluate.
     day = date(2026, 6, 21)
     se = solar_events(52.52, 13.40, day, BERLIN)
@@ -97,7 +97,7 @@ def test_default_curve_with_real_solar_events_repro_config():
     # Deep overnight must read the night temperature.
     assert DEFAULT_CURVE.evaluate(_at(3, 0), ctx) == pytest.approx(2700, abs=5)
 
-    # The evening wind-down (20:00 -> sunset+60 ~= 22:38) must be
+    # The evening wind-down (20:00 -> sunset+60 ~= 22:33) must be
     # monotonically non-increasing -- no oscillation back up.
     sample_times = [
         _at(20, 0),
@@ -106,7 +106,7 @@ def test_default_curve_with_real_solar_events_repro_config():
         _at(21, 30),
         _at(22, 0),
         _at(22, 20),
-        _at(22, 38),
+        _at(22, 33),
     ]
     values = [DEFAULT_CURVE.evaluate(t, ctx) for t in sample_times]
     for prev, cur in zip(values, values[1:], strict=False):

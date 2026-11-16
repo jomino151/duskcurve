@@ -12,7 +12,7 @@ def _dt(hour: int, minute: int, second: int = 0) -> datetime:
 
 
 def _ctx() -> DayContext:
-    # Real Berlin values for 2026-08-16: sunrise 06:00, sunset 20:40.
+    # Representative mid-August values: sunrise 06:00, sunset 20:40.
     return DayContext(
         sunrise=_dt(6, 0),
         sunset=_dt(20, 40),

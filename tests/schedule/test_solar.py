@@ -5,7 +5,7 @@ from duskcurve.schedule.solar import SolarEvents, solar_events
 
 BERLIN = ZoneInfo("Europe/Berlin")
 
-# Berlin, Germany
+# Berlin city centre
 LAT = 52.52
 LON = 13.40
 
@@ -25,8 +25,8 @@ def test_summer_solstice_matches_published_reference():
     day = date(2026, 6, 21)
     events = solar_events(LAT, LON, day, BERLIN)
 
-    expected_sunrise = events.sunrise.replace(hour=4, minute=52, second=0, microsecond=0)
-    expected_sunset = events.sunset.replace(hour=21, minute=38, second=0, microsecond=0)
+    expected_sunrise = events.sunrise.replace(hour=4, minute=43, second=0, microsecond=0)
+    expected_sunset = events.sunset.replace(hour=21, minute=33, second=0, microsecond=0)
 
     assert abs((events.sunrise - expected_sunrise).total_seconds()) <= 4 * 60
     assert abs((events.sunset - expected_sunset).total_seconds()) <= 4 * 60
@@ -49,8 +49,8 @@ def test_winter_solstice_short_day():
     assert events.sunrise.hour == 8
     # Brief states 15; verified against published data (timeanddate.com) and
     # the independent `astral` library, real sunset for Berlin on this date
-    # is ~16:03 CET. See task-3.1-report.md for details.
-    assert events.sunset.hour == 16
+    # is ~15:54 CET. See task-3.1-report.md for details.
+    assert events.sunset.hour == 15
 
     day_length = events.sunset - events.sunrise
     assert timedelta(hours=7) < day_length < timedelta(hours=8)

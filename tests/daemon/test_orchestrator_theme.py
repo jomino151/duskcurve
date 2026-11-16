@@ -18,9 +18,8 @@ from duskcurve.daemon.orchestrator import Orchestrator
 from duskcurve.theme import DARK, LIGHT, ThemeVariant
 
 BERLIN = ZoneInfo("Europe/Berlin")
-# 2026-08-16 in Berlin: sunrise ~05:59, sunset ~20:36:36 (as computed by
-# duskcurve.schedule.solar_events for this lat/lon/date -- not exactly the
-# "20:40" round number the plan's narrative used).
+# 2026-08-16 in Berlin: sunrise ~05:50, sunset ~20:30 (as computed by
+# duskcurve.schedule.solar_events for this lat/lon/date).
 DAY = (2026, 8, 16)
 
 LIGHT_V = ThemeVariant("prefer-light", "Yaru", "Yaru")
@@ -72,14 +71,12 @@ def test_first_tick_applies_unconditionally():
 
 
 def test_crossing_sunset_applies_dark_exactly_once():
-    # NOTE: actual computed sunset for this lat/lon/date is 20:36:36, not 20:40
-    # as the module docstring's "sunset 20:40" approximates -- times below are
-    # picked to straddle the real value with margin. See task-4-report.md.
-    clock = FakeClock(_dt(20, 34))
+    # Sunset for this lat/lon/date is ~20:30; the times below straddle it with margin.
+    clock = FakeClock(_dt(20, 25))
     orch, applier = _new(_cfg(), clock)
     orch.tick()
     assert applier.applied == [LIGHT_V]
-    clock.set(_dt(20, 39))
+    clock.set(_dt(20, 34))
     orch.tick()
     assert applier.applied == [LIGHT_V, DARK_V]
     for _ in range(5):
@@ -93,7 +90,7 @@ def test_a_suspend_across_sunset_is_corrected_by_a_single_tick():
     # timer cannot wake the machine, so a switch scheduled inside a suspend window
     # simply never happened. Here the clock jumps two hours and one tick fixes it.
     # NOTE: see the margin note in test_crossing_sunset_applies_dark_exactly_once.
-    clock = FakeClock(_dt(20, 34))
+    clock = FakeClock(_dt(20, 25))
     orch, applier = _new(_cfg(), clock)
     orch.tick()
     assert applier.applied == [LIGHT_V]
@@ -113,7 +110,7 @@ def test_a_daemon_started_after_dark_applies_dark_on_its_first_tick():
 
 def test_disabled_theme_applies_nothing_ever():
     cfg = replace(default_config(), theme=ThemeConfig(enabled=False))
-    clock = FakeClock(_dt(20, 39))
+    clock = FakeClock(_dt(20, 34))
     orch, applier = _new(cfg, clock)
     orch.tick()
     clock.set(_dt(22, 0))
@@ -128,7 +125,7 @@ def test_no_applier_is_a_no_op():
 
 def test_paused_freezes_the_theme_then_corrects_on_unpause():
     # NOTE: see the margin note in test_crossing_sunset_applies_dark_exactly_once.
-    clock = FakeClock(_dt(20, 34))
+    clock = FakeClock(_dt(20, 25))
     orch, applier = _new(_cfg(), clock)
     orch.tick()
     assert applier.applied == [LIGHT_V]
