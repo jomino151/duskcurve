@@ -6,6 +6,7 @@ Wires the orchestrator to Mutter, D-Bus, the config file and the GLib main loop.
 import logging
 import os
 import signal
+from collections.abc import Callable
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -14,6 +15,12 @@ import gi
 gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib  # noqa: E402
+
+try:
+    gi.require_version("GLibUnix", "2.0")
+    from gi.repository import GLibUnix  # noqa: E402
+except (ValueError, ImportError):
+    GLibUnix = None
 
 from duskcurve.backend import MutterBackend  # noqa: E402
 from duskcurve.backend.desktop_theme import GioSettingsWriter, ThemeApplier  # noqa: E402
@@ -33,6 +40,14 @@ from duskcurve.daemon.watcher import WindowWatcher  # noqa: E402
 log = logging.getLogger("duskcurve.daemon")
 
 _INTERFACE_NAME = "org.duskcurve.Daemon"
+
+
+def add_signal_handler(signum: int, handler: Callable[[], bool]) -> None:
+    """GLibUnix replaces the deprecated GLib.unix_signal_add where it exists."""
+    if GLibUnix is not None:
+        GLibUnix.signal_add(GLib.PRIORITY_DEFAULT, signum, handler)
+    else:
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, handler)
 
 
 def _config_path() -> str:
@@ -225,8 +240,8 @@ class _Daemon:
     # ------------------------------------------------------------------
 
     def install_signal_handlers(self) -> None:
-        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self._on_shutdown_signal)
-        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, self._on_shutdown_signal)
+        add_signal_handler(signal.SIGINT, self._on_shutdown_signal)
+        add_signal_handler(signal.SIGTERM, self._on_shutdown_signal)
 
     def _on_shutdown_signal(self) -> bool:
         log.info("received shutdown signal")

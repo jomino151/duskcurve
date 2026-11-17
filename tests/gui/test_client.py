@@ -172,7 +172,10 @@ class _StubDaemon(threading.Thread):
             self.connection = Gio.DBusConnection.new_for_address_sync(
                 self._bus_address, flags, None, None
             )
-            self.registration_id = self.connection.register_object(
+            register = getattr(
+                self.connection, "register_object_with_closures2", self.connection.register_object
+            )
+            self.registration_id = register(
                 DAEMON_OBJECT_PATH, self._interface_info, self._handle_method_call, None, None
             )
             owned: list[str] = []

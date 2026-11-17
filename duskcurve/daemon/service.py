@@ -192,7 +192,8 @@ def export_on_connection(service: DaemonService, connection) -> int:
             log.exception("D-Bus method %s failed", method_name)
             invocation.return_error_literal(Gio.dbus_error_quark(), Gio.DBusError.FAILED, str(exc))
 
-    return connection.register_object(
+    register = getattr(connection, "register_object_with_closures2", connection.register_object)
+    return register(
         OBJECT_PATH,
         interface_info,
         handle_method_call,

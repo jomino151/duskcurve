@@ -271,9 +271,8 @@ def _export_stub_producer(connection, iface_xml, get_state_seed):
                 f"Unknown method {method_name}",
             )
 
-    return connection.register_object(
-        WATCHER_OBJECT_PATH, interface_info, handle_method_call, None, None
-    )
+    register = getattr(connection, "register_object_with_closures2", connection.register_object)
+    return register(WATCHER_OBJECT_PATH, interface_info, handle_method_call, None, None)
 
 
 class _ProducerThread(threading.Thread):
