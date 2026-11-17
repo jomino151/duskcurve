@@ -47,5 +47,5 @@ ignore_missing_imports = true
 files = ["duskcurve"]
 
 [tool.pytest.ini_options]
-filterwarnings = ["ignore::DeprecationWarning:gi.events"]
+filterwarnings = ["ignore::DeprecationWarning:gi.events", "ignore::DeprecationWarning:gi.overrides"]
 testpaths = ["tests"]
