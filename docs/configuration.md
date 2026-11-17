@@ -12,7 +12,7 @@ The config lives at `~/.config/duskcurve/config.toml`. The daemon reloads it whe
 | `schedule.mode` | required | `recommended`, `reduce_eyestrain`, `working_late`, `classic` or `custom`. |
 | `[[schedule.keypoints]]` | none (optional) | `anchor` (`sunrise`, `sunset`, `wake`, `bedtime` or `HH:MM`), `offset_min`, `kelvin`, `easing` (`linear` or `smoothstep`). Required when `mode = "custom"`. |
 | `range.min_kelvin`, `range.max_kelvin` | `1200`, `6500` | Temperature bounds. `max_kelvin` is also the `force_day` temperature. |
-| `tick.interval_seconds` | `2.0` | How often the daemon re-evaluates. |
+| `tick.interval_seconds` | `2.0` | How often the daemon re-evaluates. Takes effect after a daemon restart. |
 | `displays.<connector>.enabled` | `true` | `false` keeps that display neutral. |
 | `displays.<connector>.override_kind` | `"none"` | `warm_cap` (never warmer than the value), `fixed` (the value in K), `offset` (mired delta, positive is warmer). |
 | `displays.<connector>.override_value` | `0.0` | Must be > 0 for `warm_cap` and `fixed`. |
@@ -106,11 +106,7 @@ Theme precedence is `paused (freeze) > manual theme > theme anchors`. Pausing le
 
 Uninstalling does not restore your previous theme.
 
-`./install.sh` warns if `auto-darkmode-switcher` is installed, since both write the same keys. Disable it before enabling `[theme]`:
-
-```bash
-systemctl --user disable --now auto-darkmode-switcher.service auto-darkmode-switcher.timer
-```
+Running another theme switcher at the same time makes the theme flip back and forth; disable it first.
 
 ## GUI
 

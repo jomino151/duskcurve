@@ -45,15 +45,6 @@ case ":$PATH:" in
             "duskcurve-gui command and the daemon unit will not resolve." ;;
 esac
 
-# A second theme switcher writing the same dconf keys would flip the theme back
-# and forth against [theme]. Best-effort: only this one is detected.
-_other_switcher="$DUSKCURVE_DATA_HOME/systemd/user/auto-darkmode-switcher.service"
-if [ -e "$_other_switcher" ]; then
-    warn "auto-darkmode-switcher is installed and will fight Duskcurve's theme switching."
-    warn "If you enable [theme] in config.toml, disable it first:"
-    warn "  systemctl --user disable --now auto-darkmode-switcher.service auto-darkmode-switcher.timer"
-fi
-
 old_pip_install=0
 if "$DUSKCURVE_PYTHON" -m pip show duskcurve >/dev/null 2>&1; then
     old_pip_install=1

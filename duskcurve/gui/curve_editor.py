@@ -401,8 +401,7 @@ class CurveEditor(Gtk.Box):
         popover = Gtk.Popover()
         popover.set_child(box)
         popover.set_parent(self._area)
-        # Gdk.Rectangle keyword construction silently zeroes every field in this PyGObject
-        # version, so build it and assign the attributes.
+        # Keyword construction of Gdk.Rectangle leaves the fields zero, so assign them.
         rect = Gdk.Rectangle()
         rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
         popover.set_pointing_to(rect)

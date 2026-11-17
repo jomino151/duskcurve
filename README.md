@@ -5,8 +5,6 @@ Circadian colour temperature for GNOME on Wayland, with an editable day curve, p
 [![CI](https://github.com/jomino151/duskcurve/actions/workflows/ci.yml/badge.svg)](https://github.com/jomino151/duskcurve/actions/workflows/ci.yml)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
 
-![Curve editor](docs/images/curve-editor.png)
-
 ## Why
 
 Mutter implements neither X11 RANDR gamma nor the wlroots gamma protocol, so redshift and gammastep cannot work on GNOME/Wayland.

@@ -85,7 +85,6 @@ class Orchestrator:
         self._pushed: dict[str, tuple[float, tuple[list[int], list[int], list[int]], datetime]] = {}
 
     def set_config(self, config: Config) -> None:
-        # `enabled` needs no pacing entry: it masks the output after easing.
         if config.theme != self._config.theme:
             # Forget the applied mode so the next tick re-applies. Whole-section on purpose: any
             # [theme] edit, even to the inactive variant, takes effect immediately.
@@ -413,7 +412,6 @@ class Orchestrator:
         if self._paused:
             return NEUTRAL_KELVIN
 
-        # dc.enabled is not consulted: it masks the output after easing.
         dc = self._config.displays.get(connector, DisplayConfig())
 
         manual = self._manual_kelvin(connector, now)

@@ -8,7 +8,6 @@ requires-python = ">=3.12"
 license = "GPL-3.0-or-later"
 keywords = ["gnome", "wayland", "night-light", "color-temperature", "gtk4"]
 classifiers = [
-    "Environment :: X11 Applications :: GTK",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
