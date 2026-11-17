@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-17
+
 ### Changed
 
 - Renamed from flux-max to Duskcurve (package, commands, D-Bus names, config path `~/.config/duskcurve`).
@@ -46,7 +48,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - Per-display overrides, timed manual temperatures, and app and fullscreen rules through a GNOME Shell extension.
 - GTK4/libadwaita GUI, and `install.sh` / `uninstall.sh`.
 
-[Unreleased]: https://github.com/jomino151/duskcurve/compare/v1.0.4...HEAD
+[Unreleased]: https://github.com/jomino151/duskcurve/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/jomino151/duskcurve/compare/v1.0.4...v1.1.0
 [1.0.4]: https://github.com/jomino151/duskcurve/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/jomino151/duskcurve/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/jomino151/duskcurve/compare/v1.0.0...v1.0.2
