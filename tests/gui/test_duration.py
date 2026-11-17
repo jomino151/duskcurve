@@ -1,6 +1,6 @@
 import pytest
 
-from fluxmax.gui.duration import (
+from duskcurve.gui.duration import (
     DURATION_CHOICES,
     DURATION_LABELS,
     DURATION_MINUTES,

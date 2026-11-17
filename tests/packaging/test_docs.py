@@ -1,38 +1,36 @@
-"""The README must describe the installer, not the procedure it replaced."""
+"""The README documents the installer."""
 
 import pathlib
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
-README = (REPO / "README.md").read_text()
+README_ONLY = (REPO / "README.md").read_text()
+README = README_ONLY + "\n" + (REPO / "docs" / "configuration.md").read_text()
 
 
 def test_readme_documents_both_scripts():
-    assert "./install.sh" in README
-    assert "./uninstall.sh" in README
+    assert "./install.sh" in README_ONLY
+    assert "./uninstall.sh" in README_ONLY
 
 
 def test_readme_documents_every_flag():
     for flag in ("--dev", "--no-start", "--purge"):
-        assert flag in README
+        assert flag in README_ONLY
 
 
-def test_readme_no_longer_teaches_the_manual_procedure():
-    """Two competing sets of instructions is how the double-install the
-    installer warns about happens in the first place."""
-    assert "--break-system-packages" not in README
-    assert "ln -s" not in README
+def test_readme_has_no_manual_install_steps():
+    """Competing install instructions lead to double installs."""
+    assert "--break-system-packages" not in README_ONLY
+    assert "ln -s" not in README_ONLY
 
 
 def test_readme_documents_the_no_record_night_light_case():
-    """With install.sh no longer fabricating a record on a failed read, the
-    no-record case is reachable in normal use, not just theoretically."""
+    """install.sh records nothing on a failed read, so the no-record case is reachable."""
     lowered = README.lower()
     assert "leaves night light alone" in lowered or "never successfully" in lowered
 
 
-def test_readme_still_warns_about_the_wayland_logout():
-    """Correct installs look broken without it -- the extension does not load
-    until the session restarts, and Alt+F2 r does not work on Wayland."""
+def test_readme_warns_about_the_wayland_logout():
+    """The extension only loads after a new session, and Alt+F2 r does not work on Wayland."""
     lowered = README.lower()
     assert "log out" in lowered
     assert "wayland" in lowered

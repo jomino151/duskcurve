@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Duskcurve
+GenericName=Blue Light Filter
+Comment=Circadian colour temperature for your displays
+Exec=duskcurve-gui
+Icon=org.duskcurve.gui
+Terminal=false
+Categories=Utility;Settings;DesktopSettings;
+Keywords=night;light;blue;colour;color;temperature;redshift;
+StartupNotify=true

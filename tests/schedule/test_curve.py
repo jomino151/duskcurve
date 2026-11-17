@@ -3,8 +3,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from fluxmax.color import lerp_kelvin
-from fluxmax.schedule.curve import (
+from duskcurve.color import lerp_kelvin
+from duskcurve.schedule.curve import (
     ClockAnchor,
     Curve,
     DayContext,
@@ -97,13 +97,9 @@ def test_wrap_around_overnight_segment():
 
 
 def test_list_order_defines_cycle_even_when_event_anchor_inverts_absolute_time():
-    # List order is the source of truth for the cyclic walk. Keypoint 3
-    # (bedtime, resolving to 21:30) lands chronologically *before* keypoint 2
-    # (sunset+60, resolving to 22:00) -- an inversion that would scramble a
-    # sort-by-resolved-minute implementation (it would reorder 21:30 ahead of
-    # 22:00, producing a spurious bump back up to 3400 after already reaching
-    # 2700). The new forward-monotonic-cycle evaluate must instead clamp the
-    # inverted keypoint to a zero-length segment and keep descending.
+    # List order defines the walk. Bedtime (21:30) resolves before sunset+60 (22:00);
+    # the inverted keypoint is clamped to a zero-length segment, so the curve
+    # keeps descending instead of bumping back up to 3400.
     ctx = DayContext(
         sunrise=_dt(6, 0),
         sunset=_dt(21, 0),
@@ -126,9 +122,7 @@ def test_list_order_defines_cycle_even_when_event_anchor_inverts_absolute_time()
     # Endpoints still resolve to their own kelvin.
     assert curve.evaluate(_dt(20, 0), ctx) == pytest.approx(6500)
     assert curve.evaluate(_dt(22, 30), ctx) == pytest.approx(2700)
-    # By 22:00 (the clamped/collapsed keypoints' shared instant) we've
-    # already reached the destination temperature -- not a garbled
-    # in-between value from a re-sorted segment.
+    # The clamped keypoints share 22:00, which is already at the destination.
     assert curve.evaluate(_dt(22, 0), ctx) == pytest.approx(2700)
 
 
@@ -179,12 +173,12 @@ def test_walk_minutes_is_non_decreasing_and_keeps_authored_order():
     ]
     walk = walk_minutes(kps, ctx)
     assert len(walk) == len(kps)
-    assert walk == sorted(walk)                       # non-decreasing
+    assert walk == sorted(walk)  # non-decreasing
     assert walk[0] == anchor_minutes(kps[0].anchor, ctx)
 
 
 def test_walk_minutes_clamps_an_inverted_keypoint_instead_of_reordering():
-    # bedtime lands BEFORE sunset -- a real high-latitude / late-sunset case.
+    # Bedtime lands before sunset: a real high-latitude, late-sunset case.
     ctx = _ctx(
         sunset=datetime(2026, 7, 29, 22, 0),
         bedtime=datetime(2026, 7, 29, 21, 0),
@@ -196,7 +190,7 @@ def test_walk_minutes_clamps_an_inverted_keypoint_instead_of_reordering():
     ]
     walk = walk_minutes(kps, ctx)
     assert walk == sorted(walk)
-    assert walk[2] == walk[1]        # clamped into a zero-length segment, not swapped
+    assert walk[2] == walk[1]  # clamped into a zero-length segment, not swapped
 
 
 def test_curve_exposes_its_keypoints():
@@ -210,4 +204,4 @@ def test_curve_keypoints_cannot_mutate_the_curve():
     curve = Curve(kps)
     assert isinstance(curve.keypoints, tuple)
     kps.append(Keypoint(ClockAnchor(23, 0), 1900))
-    assert len(curve.keypoints) == 2      # the Curve copied the list at construction
+    assert len(curve.keypoints) == 2  # the Curve copied the list at construction

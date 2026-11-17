@@ -1,5 +1,5 @@
-import fluxmax
+import duskcurve
 
 
 def test_package_imports():
-    assert fluxmax is not None
+    assert duskcurve is not None

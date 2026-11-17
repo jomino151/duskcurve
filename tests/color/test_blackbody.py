@@ -1,6 +1,6 @@
 import pytest
 
-from fluxmax.color.blackbody import kelvin_to_rgb
+from duskcurve.color.blackbody import kelvin_to_rgb
 
 
 def test_1000k_is_deep_red():
@@ -21,12 +21,14 @@ def test_blue_is_monotonic_non_decreasing():
 
 
 def test_exact_row_returned_at_multiple_of_100():
-    from fluxmax.color.blackbody_table import WHITEPOINTS
+    from duskcurve.color.blackbody_table import WHITEPOINTS
+
     assert kelvin_to_rgb(3400) == WHITEPOINTS[3400]
 
 
 def test_interpolates_linearly_between_rows():
-    from fluxmax.color.blackbody_table import WHITEPOINTS
+    from duskcurve.color.blackbody_table import WHITEPOINTS
+
     lo, hi = WHITEPOINTS[3400], WHITEPOINTS[3500]
     mid = kelvin_to_rgb(3450)
     for m, a, b in zip(mid, lo, hi, strict=True):

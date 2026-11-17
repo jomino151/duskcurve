@@ -24,8 +24,8 @@ def source(sandbox, snippet: str, expect_ok: bool = True):
 def test_paths_derive_from_xdg_not_home(sandbox):
     """Hardcoding ~/.local/share would make every install test a no-op that
     silently wrote to the developer's real home directory."""
-    out = source(sandbox, 'echo "$FLUXMAX_VENV"; echo "$FLUXMAX_UNIT_DIR"').stdout.split()
-    assert out[0] == str(sandbox.data / "fluxmax" / "venv")
+    out = source(sandbox, 'echo "$DUSKCURVE_VENV"; echo "$DUSKCURVE_UNIT_DIR"').stdout.split()
+    assert out[0] == str(sandbox.data / "duskcurve" / "venv")
     assert out[1] == str(sandbox.config / "systemd" / "user")
 
 
@@ -34,18 +34,18 @@ def test_paths_fall_back_to_the_default_xdg_locations(sandbox):
     env.pop("XDG_DATA_HOME")
     env.pop("XDG_CONFIG_HOME")
     proc = subprocess.run(
-        ["bash", "-c", f'source "{LIB}"; echo "$FLUXMAX_HOME"; echo "$FLUXMAX_UNIT_DIR"'],
+        ["bash", "-c", f'source "{LIB}"; echo "$DUSKCURVE_HOME"; echo "$DUSKCURVE_UNIT_DIR"'],
         env=env,
         capture_output=True,
         text=True,
     )
     home = env["HOME"]
-    assert proc.stdout.split() == [f"{home}/.local/share/fluxmax", f"{home}/.config/systemd/user"]
+    assert proc.stdout.split() == [f"{home}/.local/share/duskcurve", f"{home}/.config/systemd/user"]
 
 
 def test_state_set_then_get_round_trips(sandbox):
     out = source(
-        sandbox, 'state_set night_light_was_enabled true; state_get night_light_was_enabled'
+        sandbox, "state_set night_light_was_enabled true; state_get night_light_was_enabled"
     )
     assert out.stdout.strip() == "true"
 
@@ -53,8 +53,8 @@ def test_state_set_then_get_round_trips(sandbox):
 def test_state_set_upserts_rather_than_appending(sandbox):
     """Re-running the installer must not leave two values for one key --
     state_get would then return whichever the parser happened to hit first."""
-    source(sandbox, 'state_set install_mode copy; state_set install_mode dev')
-    text = (sandbox.data / "fluxmax" / "install-state").read_text()
+    source(sandbox, "state_set install_mode copy; state_set install_mode dev")
+    text = (sandbox.data / "duskcurve" / "install-state").read_text()
     assert len(re.findall(r"^install_mode=", text, re.M)) == 1
     assert source(sandbox, "state_get install_mode").stdout.strip() == "dev"
 
@@ -74,7 +74,7 @@ def test_state_get_returns_nonzero_when_the_file_does_not_exist(sandbox):
 
 def test_state_set_creates_the_directory(sandbox):
     source(sandbox, "state_set install_mode copy")
-    assert (sandbox.data / "fluxmax" / "install-state").is_file()
+    assert (sandbox.data / "duskcurve" / "install-state").is_file()
 
 
 def test_icon_theme_dir_is_the_parent_of_icon_dir(sandbox):
@@ -82,7 +82,7 @@ def test_icon_theme_dir_is_the_parent_of_icon_dir(sandbox):
     gtk-update-icon-cache) as well as the deeper scalable/apps dir; both
     should derive from one place instead of being hand-built twice."""
     out = source(
-        sandbox, 'echo "$FLUXMAX_ICON_THEME_DIR"; echo "$FLUXMAX_ICON_DIR"'
+        sandbox, 'echo "$DUSKCURVE_ICON_THEME_DIR"; echo "$DUSKCURVE_ICON_DIR"'
     ).stdout.split("\n")
     assert out[0] == str(sandbox.data / "icons" / "hicolor")
     assert out[1] == str(sandbox.data / "icons" / "hicolor" / "scalable" / "apps")
@@ -106,7 +106,7 @@ def test_night_light_schema_and_key_match_the_python_module(sandbox):
     """lib.sh duplicates these strings because bash cannot import the module.
     If nightlight.py ever moves to a different schema, this catches the drift
     instead of uninstall.sh silently restoring nothing."""
-    py = (REPO / "fluxmax" / "backend" / "nightlight.py").read_text()
+    py = (REPO / "duskcurve" / "backend" / "nightlight.py").read_text()
     schema = re.search(r'_SCHEMA = "([^"]+)"', py).group(1)
     key = re.search(r'_KEY = "([^"]+)"', py).group(1)
     out = source(sandbox, 'echo "$NIGHT_LIGHT_SCHEMA"; echo "$NIGHT_LIGHT_KEY"').stdout.split()

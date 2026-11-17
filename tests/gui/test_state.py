@@ -1,13 +1,12 @@
-from fluxmax.daemon.config import (
+from duskcurve.daemon.config import (
     ConfigError,
     default_config,
     dump_config,
 )
-from fluxmax.gui.state import AppState
+from duskcurve.gui.state import AppState
 
 GOOD_STATUS = (
-    '{"mode":"classic","paused":false,"per_display":'
-    '[{"connector":"DP-2","current_k":3000}]}'
+    '{"mode":"classic","paused":false,"per_display":[{"connector":"DP-2","current_k":3000}]}'
 )
 
 
@@ -69,7 +68,7 @@ def test_a_raising_subscriber_does_not_block_the_others():
 
     st.subscribe(boom)
     st.subscribe(lambda: seen.append(1))
-    st.set_connected(True)          # must not propagate
+    st.set_connected(True)  # must not propagate
     assert seen == [1]
 
 
@@ -109,7 +108,7 @@ def test_apply_config_reverts_and_records_the_error_on_rejection():
     st.set_config_text(dump_config(original))
     broken = default_config().__class__(**{**original.__dict__, "mode": "classic"})
     assert st.apply_config(broken) is False
-    assert st.config.mode == original.mode           # reverted
+    assert st.config.mode == original.mode  # reverted
     assert "bedtime" in st.last_error
 
 
@@ -122,7 +121,7 @@ def test_apply_config_revert_notifies_subscribers():
     calls = []
     st.subscribe(lambda: calls.append(1))
     st.apply_config(default_config())
-    assert len(calls) == 2           # optimistic set, then revert
+    assert len(calls) == 2  # optimistic set, then revert
 
 
 def test_last_error_clears_on_a_successful_apply():
@@ -147,14 +146,14 @@ def test_set_connected_false_clears_nothing_but_the_flag():
     st.set_connected(True)
     st.set_connected(False)
     assert st.connected is False
-    assert st.status is not None      # last known state stays for display
+    assert st.status is not None  # last known state stays for display
 
 
 def test_malformed_inbound_status_is_ignored_and_records_an_error():
     st = _state()
     st.set_status_text(GOOD_STATUS)
     st.set_status_text("not json")
-    assert st.status.displays[0].connector == "DP-2"   # last good state kept
+    assert st.status.displays[0].connector == "DP-2"  # last good state kept
     assert st.last_error is not None
 
 
@@ -174,7 +173,7 @@ def test_successful_set_status_text_does_not_clear_apply_error():
     st.set_config_text(dump_config(default_config()))
     st.apply_config(default_config())
     assert st.last_error is not None
-    # A subsequent status update must NOT clear the error
+    # A later status update does not clear the error.
     st.set_status_text(GOOD_STATUS)
     assert st.last_error is not None
 
@@ -188,7 +187,7 @@ def test_successful_set_config_text_does_not_clear_apply_error():
     st.set_config_text(dump_config(original))
     st.apply_config(original)
     assert st.last_error is not None
-    # A subsequent config update must NOT clear the error
+    # A later config update does not clear the error.
     st.set_config_text(dump_config(original))
     assert st.last_error is not None
 

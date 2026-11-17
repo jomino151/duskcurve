@@ -1,15 +1,15 @@
 import pytest
 
-from fluxmax.backend.transport import FakeMutterTransport, StaleSerialError
+from duskcurve.backend.transport import FakeMutterTransport, StaleSerialError
 
 
 def test_get_resources_shape():
     t = FakeMutterTransport()
     serial, crtcs, outputs, modes, mw, mh = t.call("GetResources", ())
     assert serial == t.serial
-    assert [o[4] for o in outputs] == ["DP-2", "HDMI-1"]        # names
-    assert [o[2] for o in outputs] == [0, 1]                    # current_crtc indexes
-    assert [c[0] for c in crtcs] == [0, 1]                      # crtc ids
+    assert [o[4] for o in outputs] == ["DP-2", "HDMI-1"]  # names
+    assert [o[2] for o in outputs] == [0, 1]  # current_crtc indexes
+    assert [c[0] for c in crtcs] == [0, 1]  # crtc ids
 
 
 def test_get_gamma_returns_ramp_of_configured_size():
@@ -53,4 +53,4 @@ def test_disable_output_removes_it_from_resources():
     t.disable_output("HDMI-1")
     _, _, outputs, _, _, _ = t.call("GetResources", ())
     hdmi = next(o for o in outputs if o[4] == "HDMI-1")
-    assert hdmi[2] == -1        # current_crtc index -1 => not driven
+    assert hdmi[2] == -1  # current_crtc index -1 => not driven

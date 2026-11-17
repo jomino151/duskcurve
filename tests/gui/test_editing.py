@@ -2,9 +2,9 @@ import dataclasses
 
 import pytest
 
-from fluxmax.daemon.config import KeypointConfig, default_config, dump_config, load_config
-from fluxmax.daemon.rules import Rule, WindowState, resolve_rules
-from fluxmax.gui.editing import (
+from duskcurve.daemon.config import KeypointConfig, default_config, dump_config, load_config
+from duskcurve.daemon.rules import Rule, WindowState, resolve_rules
+from duskcurve.gui.editing import (
     add_rule,
     config_to_keypoint,
     delete_keypoint,
@@ -22,15 +22,15 @@ from fluxmax.gui.editing import (
     with_keypoints,
     with_rules,
 )
-from fluxmax.gui.protocol import Status, WindowStatus
-from fluxmax.gui.rules_logic import (
+from duskcurve.gui.protocol import Status, WindowStatus
+from duskcurve.gui.rules_logic import (
     _rule_validation_error,
     _summarize,
     _window_states,
     _winning_indices,
 )
-from fluxmax.schedule.curve import ClockAnchor, EventAnchor, Keypoint
-from fluxmax.schedule.modes import MODES
+from duskcurve.schedule.curve import ClockAnchor, EventAnchor, Keypoint
+from duskcurve.schedule.modes import MODES
 
 
 def test_event_keypoint_round_trips():
@@ -104,9 +104,8 @@ def test_fork_to_custom_is_idempotent():
 
 
 def test_fork_to_custom_restores_a_parked_fork_instead_of_overwriting_it():
-    # M6 final review, C1: after switching the mode dropdown away from custom,
-    # custom_keypoints stay in the config (parked). Selecting Custom again must
-    # bring the user's own curve back, not the built-in mode's.
+    # After switching the mode away from custom, custom_keypoints stay parked in
+    # the config; selecting Custom again must restore the user's own curve.
     parked = (KeypointConfig("08:00", 6500.0), KeypointConfig("21:15", 2100.0))
     cfg = dataclasses.replace(default_config(), mode="classic", custom_keypoints=parked)
     forked = fork_to_custom(cfg)
@@ -148,18 +147,18 @@ def test_fork_to_custom_preserves_every_other_setting():
     assert forked.displays == cfg.displays
 
 
-# Finding 1: validation of clock anchor strings
+# Validation of clock anchor strings
 @pytest.mark.parametrize(
     "bad_anchor",
     [
-        "25:99",      # hour > 23, minute > 59
-        "12:60",      # minute > 59
+        "25:99",  # hour > 23, minute > 59
+        "12:60",  # minute > 59
         "lunchtime",  # not an event name, not HH:MM
-        "",           # empty string
-        "8",          # no colon
-        "8:0:0",      # too many colons
-        " 8:00",      # leading whitespace
-        "+8:00",      # leading sign
+        "",  # empty string
+        "8",  # no colon
+        "8:0:0",  # too many colons
+        " 8:00",  # leading whitespace
+        "+8:00",  # leading sign
     ],
 )
 def test_config_to_keypoint_rejects_malformed_clock_anchors(bad_anchor):
@@ -178,18 +177,14 @@ def test_config_to_keypoint_accepts_valid_clock_boundaries():
     assert config_to_keypoint(kc_max).anchor == ClockAnchor(23, 59)
 
 
-# Finding 2: round-trip with mixed anchor types (clock + event)
+# Round-trip with mixed anchor types (clock + event)
 def test_mixed_anchor_types_round_trip_through_serialization():
     # This test exercises clock anchors in the serialization round-trip,
     # which the built-in modes (all event-anchored) do not cover.
     kps_config = (
         KeypointConfig(anchor="07:05", kelvin=6500, offset_min=0, easing="smoothstep"),
-        KeypointConfig(
-            anchor="sunset", kelvin=3400.0, offset_min=-60, easing="smoothstep"
-        ),
-        KeypointConfig(
-            anchor="wake", kelvin=5500.0, offset_min=30, easing="smoothstep"
-        ),
+        KeypointConfig(anchor="sunset", kelvin=3400.0, offset_min=-60, easing="smoothstep"),
+        KeypointConfig(anchor="wake", kelvin=5500.0, offset_min=30, easing="smoothstep"),
     )
     cfg = with_keypoints(default_config(), kps_config)
     # Full round-trip through daemon serialization.
@@ -227,7 +222,7 @@ def test_set_kelvin_clamps_to_the_configured_range():
 
 def test_shift_an_event_anchor_adjusts_the_offset_and_keeps_the_anchor():
     got = shift_keypoint_time(BASE, 1, 30)
-    assert got[1].anchor == "sunset"        # still tracks sunset seasonally
+    assert got[1].anchor == "sunset"  # still tracks sunset seasonally
     assert got[1].offset_min == 90
 
 
@@ -284,8 +279,8 @@ def test_insert_wraps_1440_to_midnight():
 
 
 def test_mutations_never_reorder_an_inverted_walk():
-    # A walk whose resolved times invert is legal and must survive editing
-    # unchanged in ORDER -- sorting it would interleave phases of the cycle.
+    # A walk whose resolved times invert is legal; editing must keep its order,
+    # since sorting would interleave phases of the cycle.
     inverted = (
         KeypointConfig("wake", 6500.0),
         KeypointConfig("23:00", 2700.0),
@@ -295,8 +290,7 @@ def test_mutations_never_reorder_an_inverted_walk():
     anchors = [k.anchor for k in shift_keypoint_time(inverted, 1, 30)]
     assert anchors == ["wake", "23:30", "06:00", "sunset"]
     anchors = [
-        k.anchor
-        for k in set_keypoint_kelvin(inverted, 3, 3000, min_kelvin=1200, max_kelvin=6500)
+        k.anchor for k in set_keypoint_kelvin(inverted, 3, 3000, min_kelvin=1200, max_kelvin=6500)
     ]
     assert anchors == ["wake", "23:00", "06:00", "sunset"]
 
@@ -328,9 +322,7 @@ def test_an_out_of_range_index_raises(fn, args):
 
 
 def test_edited_keypoints_survive_the_daemon_validator():
-    base_edited = set_keypoint_kelvin(
-        BASE, 0, 6000.0, min_kelvin=1200.0, max_kelvin=6500.0
-    )
+    base_edited = set_keypoint_kelvin(BASE, 0, 6000.0, min_kelvin=1200.0, max_kelvin=6500.0)
     edited = shift_keypoint_time(base_edited, 1, 15)
     cfg = with_keypoints(default_config(), edited)
     assert load_config(dump_config(cfg)).custom_keypoints == edited
@@ -383,17 +375,11 @@ def test_move_by_zero_is_a_no_op():
 
 
 def test_reordering_changes_which_rule_wins():
-    # The behavioural reason order is load-bearing, asserted against the real
-    # resolver rather than assumed.
-    window = WindowState(
-        app_id="org.gimp.GIMP", fullscreen=True, monitor_connector="DP-2"
-    )
+    # Rule order matters because it decides which rule wins; checked against the real resolver.
+    window = WindowState(app_id="org.gimp.GIMP", fullscreen=True, monitor_connector="DP-2")
     rules = (R0, R1)  # fullscreen-disable first
     assert resolve_rules(window, rules, ["DP-2"])["DP-2"].kind == "disable"
-    assert (
-        resolve_rules(window, move_rule(rules, 1, -1), ["DP-2"])["DP-2"].kind
-        == "fixed"
-    )
+    assert resolve_rules(window, move_rule(rules, 1, -1), ["DP-2"])["DP-2"].kind == "fixed"
 
 
 def test_replace_rule_out_of_range_raises():
@@ -423,7 +409,7 @@ def test_edited_rules_survive_the_daemon_validator():
     assert load_config(dump_config(cfg)).rules == RULES
 
 
-# -- rules_panel pure-function tests -----------------------------------------
+# -- rules_panel helper tests ---------------------------------------------
 
 
 def test_summarize_mentions_unfocused():
@@ -476,7 +462,6 @@ def test_window_states_falls_back_to_the_single_window_field():
         paused=False,
         displays=(),
         window=WindowStatus("mpv", True, "DP-2"),
-        next_transition=None,
     )
     focused, unfocused = _window_states(status)
     assert focused == WindowState("mpv", True, "DP-2")
@@ -489,7 +474,6 @@ def test_window_states_splits_focused_from_unfocused_windows():
         paused=False,
         displays=(),
         window=None,
-        next_transition=None,
         windows=(
             WindowStatus("mpv", True, "DP-2", focused=False),
             WindowStatus("Gimp", True, "HDMI-1", focused=True),
@@ -505,16 +489,12 @@ def test_window_states_handles_no_status():
 
 
 def test_winning_indices_credits_the_focused_rule_that_actually_wins():
-    # Regression: the panel attributes each display to a rule by evaluating
-    # rule PREFIXES. That is sound for focused-only resolution (first match
-    # wins, so a prefix result is either "none" or the final answer), but it
-    # breaks once unfocused windows can fill displays: an unfocused rule early
-    # in the list claims a display inside its own short prefix, even though in
-    # the full rule set a LATER focused rule claims that display first and the
-    # unfocused rule never gets it. The badge would then point at the wrong
-    # rule -- the one thing this module's docstring promises cannot happen.
-    unfocused_rule = Rule(action="disable", match_fullscreen=True, match_unfocused=True,
-                          scope="window_monitor")
+    # The panel attributes a display to a rule by evaluating rule prefixes. An
+    # early unfocused rule claims the display within its own prefix, but in the
+    # full rule set a later focused rule wins it; the badge must name that rule.
+    unfocused_rule = Rule(
+        action="disable", match_fullscreen=True, match_unfocused=True, scope="window_monitor"
+    )
     gimp_rule = Rule(action="force_day", match_app_glob="gimp", scope="all")
     rules = (unfocused_rule, gimp_rule)
     connectors = ("DP-2", "HDMI-1")
@@ -524,7 +504,7 @@ def test_winning_indices_credits_the_focused_rule_that_actually_wins():
 
     # What the daemon actually does with the full rule set:
     actions = resolve_rules(focused, rules, connectors, 6500.0, unfocused)
-    assert actions["DP-2"].kind == "fixed"    # gimp_rule, scope "all", won it
+    assert actions["DP-2"].kind == "fixed"  # gimp_rule, scope "all", won it
 
     winners = _winning_indices(rules, focused, connectors, 6500.0, unfocused)
     assert winners == {"DP-2": 1, "HDMI-1": 1}

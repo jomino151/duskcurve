@@ -2,7 +2,7 @@ from dataclasses import replace
 
 import pytest
 
-from fluxmax.daemon.config import (
+from duskcurve.daemon.config import (
     Config,
     ConfigError,
     DisplayConfig,
@@ -13,8 +13,8 @@ from fluxmax.daemon.config import (
     dump_config,
     load_config,
 )
-from fluxmax.daemon.rules import Rule
-from fluxmax.theme import ThemeVariant
+from duskcurve.daemon.rules import Rule
+from duskcurve.theme import ThemeVariant
 
 
 def test_default_config_values():
@@ -147,61 +147,79 @@ def test_custom_mode_with_empty_keypoints_rejected():
 
 
 def test_custom_mode_with_bad_anchor_rejected():
-    text = _base_toml(mode="custom") + """
+    text = (
+        _base_toml(mode="custom")
+        + """
 [[schedule.keypoints]]
 anchor = "not_an_event_or_clock"
 kelvin = 6500
 """
+    )
     with pytest.raises(ConfigError):
         load_config(text)
 
 
 def test_custom_mode_with_bad_easing_rejected():
-    text = _base_toml(mode="custom") + """
+    text = (
+        _base_toml(mode="custom")
+        + """
 [[schedule.keypoints]]
 anchor = "wake"
 kelvin = 6500
 easing = "bounce"
 """
+    )
     with pytest.raises(ConfigError):
         load_config(text)
 
 
 def test_bad_override_kind_rejected():
-    text = _base_toml() + """
+    text = (
+        _base_toml()
+        + """
 [displays.DP-2]
 enabled = true
 override_kind = "not_a_kind"
 override_value = 100.0
 """
+    )
     with pytest.raises(ConfigError):
         load_config(text)
 
 
 def test_min_kelvin_gte_max_kelvin_rejected():
-    text = _base_toml() + """
+    text = (
+        _base_toml()
+        + """
 [range]
 min_kelvin = 6500
 max_kelvin = 6500
 """
+    )
     with pytest.raises(ConfigError):
         load_config(text)
 
 
 def test_negative_transition_seconds_rejected():
-    text = _base_toml() + """
+    text = (
+        _base_toml()
+        + """
 [transition]
 seconds = -1.0
 """
+    )
     with pytest.raises(ConfigError):
         load_config(text)
 
 
 def test_non_positive_tick_interval_rejected():
-    text = _base_toml() + """
+    text = (
+        _base_toml()
+        + """
 [tick]
 interval_seconds = 0.0
 """
+    )
     with pytest.raises(ConfigError):
         load_config(text)
 
@@ -210,10 +228,8 @@ def test_config_error_is_value_error():
     assert issubclass(ConfigError, ValueError)
 
 
-# --- M6 final review, C1: a hand-authored custom curve must survive while a
-# built-in mode is selected. Keypoints alongside a non-custom mode are
-# therefore *accepted* (they are the parked fork) and dump_config emits them
-# regardless of mode. Only "custom with no keypoints" stays invalid.
+# --- Keypoints alongside a built-in mode are accepted (a parked custom curve) and
+# dumped regardless of mode. Only "custom with no keypoints" is invalid.
 
 
 def test_non_custom_mode_with_populated_keypoints_loads():
@@ -256,9 +272,7 @@ def test_custom_mode_without_keypoints_still_rejected():
 
 
 def test_gui_fork_edit_switch_away_and_back_preserves_the_edited_curve():
-    """The exact GUI journey from the M6 review: fork a built-in to custom,
-    edit a keypoint, switch the mode dropdown to a built-in, let the config go
-    through the daemon (dump -> load), then switch back to custom."""
+    """A custom curve survives switching to a built-in mode and back, via dump and load."""
     forked = Config(
         location=Location(52.52, 13.40, "Europe/Berlin"),
         wake="10:00",
@@ -293,9 +307,7 @@ def test_gui_fork_edit_switch_away_and_back_preserves_the_edited_curve():
     assert reloaded.custom_keypoints[1].kelvin == 3300.0
 
 
-# --- Review fix: IMPORTANT 2 -- non-numeric values in numeric-coerced fields
-# must raise ConfigError, not a bare ValueError/TypeError leaking out of
-# float()/int().
+# --- Non-numeric values in numeric fields raise ConfigError, not a bare ValueError/TypeError.
 
 
 def test_range_min_kelvin_non_numeric_raises_config_error():
@@ -361,7 +373,7 @@ offset_min = "abc"
         load_config(text)
 
 
-# --- Review fix: MINOR -- previously-untested-but-enforced rules.
+# --- Further validation rules.
 
 
 def test_keypoint_kelvin_zero_rejected():
@@ -499,13 +511,16 @@ def test_rules_round_trip():
 
 
 def test_rule_parsed_from_hand_written_toml():
-    text = dump_config(default_config()) + """
+    text = (
+        dump_config(default_config())
+        + """
 [[rules]]
 match_app_glob = "steam_app_*"
 match_fullscreen = true
 action = "disable"
 scope = "all"
 """
+    )
     cfg = load_config(text)
     assert cfg.rules == (
         Rule(
@@ -519,70 +534,87 @@ scope = "all"
 
 
 def test_match_unfocused_defaults_to_false():
-    cfg = load_config(_base_toml() + """
+    cfg = load_config(
+        _base_toml()
+        + """
 [[rules]]
 match_fullscreen = true
 action = "disable"
-""")
+"""
+    )
     assert cfg.rules[0].match_unfocused is False
 
 
 def test_match_unfocused_is_parsed():
-    cfg = load_config(_base_toml() + """
+    cfg = load_config(
+        _base_toml()
+        + """
 [[rules]]
 match_fullscreen = true
 match_unfocused = true
 action = "disable"
-""")
+"""
+    )
     assert cfg.rules[0].match_unfocused is True
 
 
 def test_match_unfocused_requires_match_fullscreen():
     with pytest.raises(ConfigError, match="match_unfocused"):
-        load_config(_base_toml() + """
+        load_config(
+            _base_toml()
+            + """
 [[rules]]
 match_app_glob = "mpv"
 match_unfocused = true
 action = "disable"
-""")
+"""
+        )
 
 
 def test_match_unfocused_must_be_a_bool():
     with pytest.raises(ConfigError, match="match_unfocused"):
-        load_config(_base_toml() + """
+        load_config(
+            _base_toml()
+            + """
 [[rules]]
 match_fullscreen = true
 match_unfocused = "yes"
 action = "disable"
-""")
+"""
+        )
 
 
 def test_round_trip_preserves_match_unfocused():
-    rule = Rule(action="fixed", action_kelvin=3400, match_app_glob="mpv",
-                match_fullscreen=True, match_unfocused=True, scope="DP-2")
+    rule = Rule(
+        action="fixed",
+        action_kelvin=3400,
+        match_app_glob="mpv",
+        match_fullscreen=True,
+        match_unfocused=True,
+        scope="DP-2",
+    )
     cfg = replace(default_config(), rules=(rule,))
     assert load_config(dump_config(cfg)).rules == (rule,)
 
 
 def test_dump_omits_match_unfocused_when_false():
-    cfg = replace(default_config(),
-                  rules=(Rule(action="disable", match_fullscreen=True),))
+    cfg = replace(default_config(), rules=(Rule(action="disable", match_fullscreen=True),))
     assert "match_unfocused" not in dump_config(cfg)
 
 
 @pytest.mark.parametrize(
     "block",
     [
-        '[[rules]]\nmatch_fullscreen = true\n',                                # no action
-        '[[rules]]\naction = "explode"\nmatch_fullscreen = true\n',            # unknown action
-        '[[rules]]\naction = "fixed"\nmatch_fullscreen = true\n',              # fixed w/o kelvin
+        "[[rules]]\nmatch_fullscreen = true\n",  # no action
+        '[[rules]]\naction = "explode"\nmatch_fullscreen = true\n',  # unknown action
+        '[[rules]]\naction = "fixed"\nmatch_fullscreen = true\n',  # fixed w/o kelvin
         '[[rules]]\naction = "fixed"\naction_kelvin = 0\nmatch_fullscreen = true\n',
-        '[[rules]]\naction = "fixed"\naction_kelvin = true\nmatch_fullscreen = true\n',   # bool
+        '[[rules]]\naction = "fixed"\naction_kelvin = true\nmatch_fullscreen = true\n',  # bool
         '[[rules]]\naction = "disable"\naction_kelvin = 3000\nmatch_fullscreen = true\n',
-        '[[rules]]\naction = "disable"\n',                                     # matches everything
-        '[[rules]]\naction = "disable"\nmatch_fullscreen = false\n',           # matches everything
-        '[[rules]]\naction = "disable"\nmatch_app_glob = 12\n',                # glob not a string
-        '[[rules]]\naction = "disable"\nmatch_fullscreen = "yes"\n',           # not a bool
+        '[[rules]]\naction = "disable"\n',  # matches everything
+        '[[rules]]\naction = "disable"\nmatch_fullscreen = false\n',  # matches everything
+        '[[rules]]\naction = "disable"\nmatch_app_glob = 12\n',  # glob not a string
+        '[[rules]]\naction = "disable"\nmatch_fullscreen = "yes"\n',  # not a bool
         '[[rules]]\naction = "disable"\nmatch_fullscreen = true\nscope = ""\n',
         '[[rules]]\naction = "disable"\nmatch_fullscreen = true\nscope = 3\n',
     ],
@@ -641,8 +673,7 @@ manual_seconds = "abc"
 
 
 def test_config_written_before_manual_transition_seconds_still_loads():
-    """A TOML document with no [transition].manual_seconds key at all (as
-    written by a pre-change build) must still load, defaulting the field."""
+    """A document without [transition].manual_seconds still loads, with the default."""
     text = dump_config(default_config()).replace("manual_seconds = 2.0\n", "")
     assert "manual_seconds" not in text
     cfg = load_config(text)
@@ -652,10 +683,7 @@ def test_config_written_before_manual_transition_seconds_still_loads():
 def _with_theme(body: str) -> str:
     """A valid config whose theme section is exactly `body`.
 
-    The default dump already contains a [theme] table, so this drops it and
-    everything after it -- appending a second [theme] would be a TOML redefinition
-    error and every test below would fail on "invalid TOML" instead of on the
-    validation rule it is actually checking.
+    Drops the default [theme] table first: a second one would be a TOML redefinition error.
     """
     base = dump_config(default_config()).split("[theme]")[0]
     return base + body
@@ -690,7 +718,7 @@ def test_theme_round_trips_through_dump_and_load():
 
 
 def test_missing_theme_section_is_allowed():
-    # Every config written before M8 has no [theme] section and must still load.
+    # A config without a [theme] section still loads.
     text = dump_config(default_config())
     assert "[theme]" in text
     stripped = text.split("[theme]")[0]
@@ -703,8 +731,8 @@ def test_bad_theme_anchor_is_rejected():
 
 
 def test_bad_color_scheme_is_rejected_at_load_not_silently_ignored_at_write():
-    # Gio's set_string returns False for an out-of-enum value WITHOUT raising, so an
-    # unvalidated typo would present as "the theme just never changes". Catch it here.
+    # Gio's set_string returns False for an out-of-enum value instead of raising, so a typo
+    # would otherwise fail silently.
     with pytest.raises(ConfigError, match="color_scheme"):
         load_config(_with_theme('[theme.light]\ncolor_scheme = "prefer-lite"\n'))
 
@@ -716,9 +744,7 @@ def test_relative_wallpaper_path_is_rejected():
 
 def test_identical_light_and_dark_anchors_are_rejected():
     with pytest.raises(ConfigError, match="must differ"):
-        load_config(
-            _with_theme('[theme]\nlight_from = "12:00"\ndark_from = "12:00"\n')
-        )
+        load_config(_with_theme('[theme]\nlight_from = "12:00"\ndark_from = "12:00"\n'))
 
 
 def test_theme_offsets_must_be_integers():

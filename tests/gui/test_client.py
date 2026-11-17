@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from fluxmax.gui.client import (
+from duskcurve.gui.client import (
     DAEMON_BUS_NAME,
     DAEMON_INTERFACE,
     DAEMON_OBJECT_PATH,
@@ -13,26 +13,26 @@ from fluxmax.gui.client import (
 
 
 def test_contract_constants_match_the_daemon():
-    from fluxmax.daemon.service import BUS_NAME, OBJECT_PATH
+    from duskcurve.daemon.service import BUS_NAME, OBJECT_PATH
 
-    assert DAEMON_BUS_NAME == BUS_NAME == "org.fluxmax.Daemon"
-    assert DAEMON_OBJECT_PATH == OBJECT_PATH == "/org/fluxmax/Daemon"
-    assert DAEMON_INTERFACE == "org.fluxmax.Daemon"
+    assert DAEMON_BUS_NAME == BUS_NAME == "org.duskcurve.Daemon"
+    assert DAEMON_OBJECT_PATH == OBJECT_PATH == "/org/duskcurve/Daemon"
+    assert DAEMON_INTERFACE == "org.duskcurve.Daemon"
 
 
 def test_construction_does_no_dbus_work():
     seen = []
     client = DaemonClient(seen.append, seen.append, seen.append)
     assert seen == []
-    client.stop()          # safe without start()
+    client.stop()  # safe without start()
     client.stop_polling()  # safe without start_polling()
 
 
 def test_importing_the_client_does_not_pull_in_gi():
     code = (
-        "import sys; import fluxmax.gui.client; "
+        "import sys; import duskcurve.gui.client; "
         "assert not any(m == 'gi' or m.startswith('gi.') for m in sys.modules), "
-        "'fluxmax.gui.client pulled in gi'"
+        "'duskcurve.gui.client pulled in gi'"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
 
@@ -40,12 +40,8 @@ def test_importing_the_client_does_not_pull_in_gi():
 # ----------------------------------------------------------------------
 # Integration over a real (private) D-Bus.
 #
-# Everything in DaemonClient.start() -- the name watch, signal_subscribe's
-# argument order, the call_sync marshalling for each method, and
-# result.unpack() against the daemon's actual INTERFACE_XML -- otherwise
-# never executes against a bus. The stub below exports the XML read
-# verbatim from fluxmax/daemon/service.py, so a signature mismatch between
-# the GUI and the daemon is caught here rather than on hardware.
+# The stub daemon exports the INTERFACE_XML from duskcurve/daemon/service.py,
+# so a signature mismatch between the GUI and the daemon is caught here.
 # ----------------------------------------------------------------------
 
 try:
@@ -66,17 +62,10 @@ import time  # noqa: E402
 
 
 def _pump_until(predicate, timeout=5.0):
-    """Iterate the default main context until predicate() is true or a
-    wall-clock deadline elapses.
+    """Iterate the default main context until predicate() is true or the deadline passes.
 
-    Copied from tests/daemon/test_watcher.py:142 -- see that module for the
-    full rationale. A bare `while not predicate(): ctx.iteration(True)`
-    could hang forever if the expected event never arrives, since
-    iteration(True) blocks until *some* source is ready and nothing
-    guarantees one ever will be. A periodic guard timeout source keeps the
-    context always having something to dispatch, so the wall-clock deadline
-    below actually gets enforced. Returns False (never hangs, never raises)
-    on timeout, so callers can assert on it with their own message.
+    A periodic guard source keeps iteration(True) from blocking forever when the
+    expected event never arrives. Returns False on timeout; never raises.
     """
     ctx = GLib.MainContext.default()
     deadline = time.monotonic() + timeout
@@ -92,22 +81,11 @@ def _pump_until(predicate, timeout=5.0):
 
 
 class _StubDaemon(threading.Thread):
-    """Runs the stub org.fluxmax.Daemon producer on its own thread with its
-    own private GMainContext, standing in for the real daemon process.
+    """Stub org.duskcurve.Daemon producer on its own thread and GMainContext.
 
-    This mirrors tests/daemon/test_watcher.py's _ProducerThread and is
-    load-bearing for the same reason documented there: DaemonClient's calls
-    (GetStatus, SetConfig, ...) are *synchronous* connection.call_sync()
-    calls. GDBusConnection.call_sync() waits on a private GMainContext it
-    creates for the duration of the call -- it does NOT pump whatever
-    context the callee's connection.register_object() dispatches on. A stub
-    registered on the same thread/context as the calling client would
-    therefore never get a chance to run its handler while call_sync blocks
-    waiting for a reply, and every call would time out (this was observed
-    directly: every bus test failed with "Timeout was reached" until the
-    stub was moved to its own thread with its own continuously-running
-    GMainLoop). A separate thread + context sidesteps that entirely, just
-    as the real daemon being a separate OS process would.
+    DaemonClient uses synchronous call_sync(), which does not pump the callee's
+    context; a stub sharing the client's thread would never answer and every call
+    would time out.
     """
 
     def __init__(self, bus_address: str, interface_info) -> None:
@@ -135,8 +113,7 @@ class _StubDaemon(threading.Thread):
         self._reject_message = None
 
     def emit_status_changed(self, json_payload: str) -> None:
-        # Documented thread-safe -- does not require the producer thread's
-        # context to be pumped, unlike receiving a call.
+        # emit_signal is thread-safe and needs no pumping of the producer context.
         self.connection.emit_signal(
             None,
             DAEMON_OBJECT_PATH,
@@ -180,10 +157,8 @@ class _StubDaemon(threading.Thread):
             )
 
     def _mark_ready(self, _user_data=None) -> bool:
-        # Runs as an idle source dispatched from inside self._loop.run(),
-        # so by the time this fires the loop is genuinely iterating -- not
-        # merely about to. See the "quit-before-run race" note below for why
-        # that distinction is the whole point of this method existing.
+        # Runs as an idle source inside self._loop.run(), so the loop is genuinely
+        # iterating by the time _ready is set (see run()).
         self._ready.set()
         return GLib.SOURCE_REMOVE
 
@@ -197,7 +172,10 @@ class _StubDaemon(threading.Thread):
             self.connection = Gio.DBusConnection.new_for_address_sync(
                 self._bus_address, flags, None, None
             )
-            self.registration_id = self.connection.register_object(
+            register = getattr(
+                self.connection, "register_object_with_closures2", self.connection.register_object
+            )
+            self.registration_id = register(
                 DAEMON_OBJECT_PATH, self._interface_info, self._handle_method_call, None, None
             )
             owned: list[str] = []
@@ -220,31 +198,17 @@ class _StubDaemon(threading.Thread):
             self._main_context.pop_thread_default()
             return
 
-        # IMPORTANT (this was the segfault): do not set self._ready here.
-        # Setting it right after acquiring the name -- before self._loop.run()
-        # below has actually been entered -- lets the test thread's
-        # stop_thread() race ahead and call self._loop.quit() *before* run()
-        # starts. GMainLoop.quit() on a loop that is not yet running is a
-        # no-op (it clears a "keep running" flag that run() unconditionally
-        # sets back to true when it starts), so the quit request is silently
-        # lost, run() spins forever, and this thread never exits. The join()
-        # in stop_thread() would then time out while the thread stays alive,
-        # holding a live GDBusConnection into a torn-down TestDBus and racing
-        # CPython's interpreter shutdown against gi._gi -- observed as a
-        # segfault when a later test module's teardown runs. Scheduling an
-        # idle source on self._main_context and only setting self._ready from
-        # within it guarantees run() has genuinely started dispatching
-        # before any caller can conclude "ready" and proceed to quit().
+        # _ready is set from an idle source, not here: GMainLoop.quit() before run()
+        # starts is a no-op, so an early quit would be lost and the thread would
+        # outlive the fixture.
         idle_source = GLib.idle_source_new()
         idle_source.set_callback(self._mark_ready)
         idle_source.attach(self._main_context)
 
         self._loop.run()
 
-        # Cleanup happens on this thread (the one that owns the connection),
-        # after run() returns, so nothing outlives the fixture: release the
-        # owned name, unexport the object, and close the connection before
-        # this thread -- and therefore this GMainContext -- goes away.
+        # Clean up on the thread that owns the connection: release the name,
+        # unexport the object and close the connection.
         try:
             if self._owner_id is not None:
                 Gio.bus_unown_name(self._owner_id)
@@ -266,10 +230,7 @@ class _StubDaemon(threading.Thread):
             raise self._error
 
     def request_quit(self) -> None:
-        """Idempotent, thread-safe: GLib.MainLoop.quit() is safe to call
-        from another thread, but calling it more than once (or before the
-        loop is confirmed running -- see wait_ready()) is exactly the
-        footgun this whole class exists to avoid, so guard it explicitly."""
+        """Quit the loop at most once; safe to call from any thread."""
         with self._quit_lock:
             if self._quit_called:
                 return
@@ -277,9 +238,7 @@ class _StubDaemon(threading.Thread):
             self._loop.quit()
 
     def stop_thread(self, timeout: float = 5.0) -> None:
-        # wait_ready() already guarantees self._loop.run() has started by
-        # the time this is reachable in normal use, but assert it again
-        # here rather than trusting call order blindly.
+        # Quit only once the loop is confirmed running.
         if not self._ready.is_set():
             self._ready.wait(timeout)
         self.request_quit()
@@ -294,13 +253,11 @@ class _StubDaemon(threading.Thread):
 
 @pytest.fixture(scope="module")
 def _dbus_environment():
-    """Bring up the private bus and start the stub daemon's producer thread
-    exactly once for the whole module (see stub_daemon below for why calls
-    are reset per test instead of tearing this down and back up per test)."""
+    """Bring up the private bus and the stub daemon once for the whole module."""
     if _GI_IMPORT_ERROR is not None:
         pytest.skip(f"gi/Gio not available: {_GI_IMPORT_ERROR}")
 
-    from fluxmax.daemon.service import INTERFACE_XML
+    from duskcurve.daemon.service import INTERFACE_XML
 
     test_bus = None
     try:
@@ -311,9 +268,7 @@ def _dbus_environment():
     if test_bus is None:
         pytest.skip("no private (Gio.TestDBus) bus available in this environment")
 
-    # Gio.TestDBus.up() redirects the session bus for this process, so
-    # DaemonClient.start()'s plain Gio.bus_get_sync(SESSION) lands on this
-    # private test bus for the remainder of the module.
+    # up() redirects the session bus, so DaemonClient reaches this private bus.
     node_info = Gio.DBusNodeInfo.new_for_xml(INTERFACE_XML)
     interface_info = node_info.interfaces[0]
 
@@ -325,22 +280,9 @@ def _dbus_environment():
         yield stub
     finally:
         stub.stop_thread()
-        # Every DaemonClient.start() in this module called
-        # Gio.bus_get_sync(SESSION), which is a process-wide *singleton*
-        # connection cached by GDBus -- not a fresh connection per call. Each
-        # DaemonClient.stop() only unsubscribes/unwatches on it; the
-        # singleton itself stays open, still pointing at this private test
-        # bus. If we tear the test bus down while that singleton is still
-        # open, GDBus can deliver a late async event (e.g. a NameOwnerChanged
-        # completion or connection-closed notification) against a connection
-        # whose underlying bus process is already gone -- observed as a
-        # segfault, sometimes attributed to whatever unrelated code happened
-        # to be running when the delayed callback landed (e.g. a later test
-        # module's fixture teardown). Explicitly closing the singleton here
-        # drops GDBus's cached reference to it, so the next
-        # Gio.bus_get_sync(SESSION) call anywhere else in the process (after
-        # this module is done) is forced to establish a brand new connection
-        # instead of reusing this dead one.
+        # bus_get_sync(SESSION) is a process-wide singleton that DaemonClient.stop()
+        # leaves open. Close it before the bus goes away so GDBus cannot deliver
+        # late events to a dead connection, and later modules get a fresh one.
         try:
             shared = Gio.bus_get_sync(Gio.BusType.SESSION, None)
             if not shared.is_closed():
@@ -348,19 +290,8 @@ def _dbus_environment():
         except GLib.Error:
             pass
         else:
-            # Gio.TestDBus.down() tracks the singleton connection with a
-            # weak pointer and blocks (with an internal ~30s watchdog)
-            # waiting for its refcount to reach zero before actually
-            # stopping the dbus-daemon subprocess -- precisely to avoid the
-            # segfault this whole fixture was rewritten to prevent. Closing
-            # it is not enough on its own: Python's refcounting still holds
-            # it alive via the local `shared` name until it goes out of
-            # scope, so down() would sit in that 30s wait every single run
-            # (observed directly) and then log a GLib-CRITICAL
-            # "g_main_loop_quit: ... ref_count > 0" from *inside* its own
-            # C implementation when the watchdog gives up. Dropping the
-            # reference and forcing collection here lets the GObject
-            # finalize immediately, so down() proceeds without waiting.
+            # TestDBus.down() waits up to ~30s for the singleton's refcount to reach
+            # zero; drop the local reference and collect so it finalises at once.
             del shared
         gc.collect()
         test_bus.down()
@@ -368,16 +299,10 @@ def _dbus_environment():
 
 @pytest.fixture
 def stub_daemon(_dbus_environment):
-    """Per-test view of the module-scoped stub daemon, with call history and
-    canned payloads reset so tests stay isolated from each other.
+    """Per-test view of the module-scoped stub, with call history and payloads reset.
 
-    Gio.bus_get_sync() returns a process-wide singleton connection per bus
-    type, cached across calls; DaemonClient.start() relies on that to reach
-    the private bus. Cycling Gio.TestDBus up()/down() once per test left
-    later tests' Gio.bus_get_sync(SESSION) calls returning a defunct cached
-    connection from a torn-down private bus. Bringing the bus (and the
-    producer thread) up once per module and resetting only the stub's
-    recorded state between tests avoids that.
+    The bus stays up for the whole module: cycling it per test would leave the
+    cached session connection pointing at a torn-down bus.
     """
     _dbus_environment.reset()
     yield _dbus_environment
@@ -397,15 +322,13 @@ def test_status_changed_delivers_the_payload_and_refetches_config(stub_daemon):
     statuses, configs = [], []
     client = DaemonClient(statuses.append, configs.append, lambda _c: None)
     client.start()
-    # Wait for the initial connect (name-appeared -> refresh()) to settle
-    # before taking the "before" baseline, so it isolates the signal's own
-    # marginal effect rather than double-counting the connect's own fetch.
+    # Let the initial connect settle first so the baseline excludes its fetch.
     assert _pump_until(lambda: len(configs) >= 1), "timed out waiting for initial connect"
     before = len(configs)
     stub_daemon.emit_status_changed('{"mode":"classic","paused":true,"per_display":[]}')
     assert _pump_until(lambda: len(configs) > before), "timed out waiting for config refetch"
     assert '"classic"' in statuses[-1]
-    assert len(configs) == before + 1      # the signal triggers a config refetch
+    assert len(configs) == before + 1  # the signal triggers a config refetch
     client.stop()
 
 
@@ -438,18 +361,17 @@ def test_polling_refetches_status_but_not_config(stub_daemon):
     statuses, configs = [], []
     client = DaemonClient(statuses.append, configs.append, lambda _b: None)
     client.start()
-    # Settle the initial connect before taking baselines, for the same
-    # reason as test_status_changed_delivers_the_payload_and_refetches_config.
-    assert _pump_until(
-        lambda: len(statuses) >= 1 and len(configs) >= 1
-    ), "timed out waiting for initial connect"
+    # Let the initial connect settle before taking baselines.
+    assert _pump_until(lambda: len(statuses) >= 1 and len(configs) >= 1), (
+        "timed out waiting for initial connect"
+    )
     status_before, config_before = len(statuses), len(configs)
     client.start_polling(1)
-    assert _pump_until(
-        lambda: len(statuses) > status_before, timeout=3.0
-    ), "timed out waiting for a poll tick"
+    assert _pump_until(lambda: len(statuses) > status_before, timeout=3.0), (
+        "timed out waiting for a poll tick"
+    )
     assert len(statuses) > status_before
-    assert len(configs) == config_before      # the poll path never calls GetConfig
+    assert len(configs) == config_before  # the poll path never calls GetConfig
     client.stop_polling()
     client.stop()
 
@@ -463,7 +385,7 @@ def test_start_polling_twice_does_not_create_two_timers(stub_daemon):
     assert client._poll_id == first
     client.stop_polling()
     assert client._poll_id is None
-    client.stop_polling()      # idempotent
+    client.stop_polling()  # idempotent
     client.stop()
 
 
@@ -472,27 +394,13 @@ def test_a_raising_callback_does_not_escape_into_gio(stub_daemon, caplog):
         raise RuntimeError("view exploded")
 
     client = DaemonClient(boom, boom, lambda _b: None)
-    client.start()             # must not raise
-    # Pump so the connect's refresh() (which invokes boom() via
-    # on_status/on_config) and the emitted signal below actually run --
-    # otherwise this test would exercise nothing. Bounded, never hangs: it
-    # is expected to exhaust its timeout since nothing here ever makes the
-    # predicate true.
+    client.start()  # must not raise
+    # Pump so the connect's refresh() and the emitted signal below actually run;
+    # the predicate is never true, so each call simply runs out its timeout.
     _pump_until(lambda: False, timeout=0.3)
     stub_daemon.emit_status_changed('{"mode":"classic","paused":false,"per_display":[]}')
     _pump_until(lambda: False, timeout=0.3)
     client.stop()
-    # DaemonClient._safe() logs the caught exception via log.exception(),
-    # whose LogRecord carries the full exc_info traceback -- including the
-    # _safe() frame's locals, which hold `self` and therefore
-    # self._connection, the process-wide Gio.bus_get_sync(SESSION) singleton.
-    # pytest's log capture retains that record (for potential failure
-    # reporting) past the end of this test function, keeping the singleton
-    # connection alive long after client.stop() runs. Left alone, that live
-    # reference is still there when the module-scoped _dbus_environment
-    # fixture tries to close the singleton and tear the private bus down:
-    # Gio.TestDBus.down() tracks it with a weak pointer and blocks for ~30s
-    # waiting for a refcount that never reaches zero (observed directly).
-    # Clearing the capture here, before any fixture teardown starts, drops
-    # the reference immediately.
+    # The captured log record's traceback holds the session-bus singleton alive,
+    # which would stall TestDBus.down() in fixture teardown; drop it now.
     caplog.clear()

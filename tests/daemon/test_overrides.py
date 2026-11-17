@@ -1,7 +1,7 @@
 import pytest
 
-from fluxmax.color import kelvin_to_mired, mired_to_kelvin
-from fluxmax.daemon.overrides import apply_override
+from duskcurve.color import kelvin_to_mired, mired_to_kelvin
+from duskcurve.daemon.overrides import apply_override
 
 
 def test_none_returns_target_exactly():

@@ -4,10 +4,10 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from fluxmax.backend import FakeMutterTransport, MutterBackend
-from fluxmax.daemon.config import ConfigError, default_config, dump_config, load_config
-from fluxmax.daemon.orchestrator import Orchestrator
-from fluxmax.daemon.service import BUS_NAME, INTERFACE_XML, OBJECT_PATH, DaemonService
+from duskcurve.backend import FakeMutterTransport, MutterBackend
+from duskcurve.daemon.config import ConfigError, default_config, dump_config, load_config
+from duskcurve.daemon.orchestrator import Orchestrator
+from duskcurve.daemon.service import BUS_NAME, INTERFACE_XML, OBJECT_PATH, DaemonService
 
 BERLIN = ZoneInfo("Europe/Berlin")
 
@@ -161,8 +161,8 @@ def test_get_status_returns_json_of_orchestrator_status(tmp_path):
 
 
 def test_module_constants():
-    assert BUS_NAME == "org.fluxmax.Daemon"
-    assert OBJECT_PATH == "/org/fluxmax/Daemon"
+    assert BUS_NAME == "org.duskcurve.Daemon"
+    assert OBJECT_PATH == "/org/duskcurve/Daemon"
 
 
 def test_interface_xml_parses_and_exposes_contract():
@@ -172,8 +172,8 @@ def test_interface_xml_parses_and_exposes_contract():
 
     node_info = Gio.DBusNodeInfo.new_for_xml(INTERFACE_XML)
     interfaces = {iface.name: iface for iface in node_info.interfaces}
-    assert "org.fluxmax.Daemon" in interfaces
-    iface = interfaces["org.fluxmax.Daemon"]
+    assert "org.duskcurve.Daemon" in interfaces
+    iface = interfaces["org.duskcurve.Daemon"]
 
     method_names = {m.name for m in iface.methods}
     assert method_names == {
@@ -216,7 +216,14 @@ def test_set_theme_rejects_an_unknown_mode(tmp_path):
 def test_interface_xml_declares_the_theme_methods():
     assert '<method name="SetTheme">' in INTERFACE_XML
     assert '<method name="ClearTheme">' in INTERFACE_XML
-    # Additive only: every pre-M8 method must still be declared.
-    for name in ("GetStatus", "GetConfig", "SetConfig", "SetPaused",
-                 "SetManualTemp", "ClearManualTemp", "ReloadConfig"):
+    # The original methods stay declared.
+    for name in (
+        "GetStatus",
+        "GetConfig",
+        "SetConfig",
+        "SetPaused",
+        "SetManualTemp",
+        "ClearManualTemp",
+        "ReloadConfig",
+    ):
         assert f'<method name="{name}">' in INTERFACE_XML

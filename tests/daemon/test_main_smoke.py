@@ -1,17 +1,10 @@
-"""Lightweight smoke test for the live D-Bus dispatch used by fluxmax.daemon.main.
+"""Smoke tests for live D-Bus dispatch: a real connection with DaemonService exported.
 
-Task 4.4's reviewer flagged that `service.export_on_connection`'s live dispatch
-(GLib.Variant pack/unpack, ConfigError -> D-Bus error mapping) is untested by
-the pure `DaemonService` unit tests in test_service.py, which never touch a
-real bus. This test exercises exactly that path: a real GDBusConnection with
-DaemonService exported, called over the wire.
-
-Uses an isolated private bus via Gio.TestDBus when available (no dependency on
-or interference with any real session bus / real fluxmax daemon). Falls back
-to the real session bus only if TestDBus can't come up and
-$DBUS_SESSION_BUS_ADDRESS is set. Skips cleanly (not a failure) if neither is
-reachable in this environment.
+Covers Variant packing and ConfigError-to-D-Bus-error mapping, which test_service.py never
+touches. Uses a private Gio.TestDBus bus, falling back to the session bus, else skips.
+The private bus keeps it clear of any running daemon.
 """
+
 import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -22,17 +15,17 @@ gi = pytest.importorskip("gi")
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio, GLib  # noqa: E402
 
-from fluxmax.backend import FakeMutterTransport, MutterBackend  # noqa: E402
-from fluxmax.daemon.config import default_config, dump_config  # noqa: E402
-from fluxmax.daemon.orchestrator import Orchestrator  # noqa: E402
-from fluxmax.daemon.service import (  # noqa: E402
+from duskcurve.backend import FakeMutterTransport, MutterBackend  # noqa: E402
+from duskcurve.daemon.config import default_config, dump_config  # noqa: E402
+from duskcurve.daemon.orchestrator import Orchestrator  # noqa: E402
+from duskcurve.daemon.service import (  # noqa: E402
     BUS_NAME,
     OBJECT_PATH,
     DaemonService,
     export_on_connection,
 )
 
-_INTERFACE = "org.fluxmax.Daemon"
+_INTERFACE = "org.duskcurve.Daemon"
 
 
 @pytest.fixture
@@ -79,13 +72,9 @@ def _own_name_and_wait(conn: "Gio.DBusConnection") -> None:
 
 
 def _call(conn, method, parameters, reply_type):
-    """Issue an async D-Bus call and pump a fresh MainLoop until it completes.
+    """Issue an async D-Bus call and run a MainLoop until it completes.
 
-    A blocking call_sync() would deadlock here: `conn` is also hosting the
-    exported service on this same thread's default main context, so the
-    incoming method-call message needs that context to keep spinning in order
-    to reach our own handler and reply. Async call() + a nested MainLoop lets
-    the default context do exactly that.
+    call_sync() would deadlock: the exported service shares this thread's default main context.
     """
     result = {}
     loop = GLib.MainLoop()
@@ -98,8 +87,17 @@ def _call(conn, method, parameters, reply_type):
         loop.quit()
 
     conn.call(
-        BUS_NAME, OBJECT_PATH, _INTERFACE, method, parameters, reply_type,
-        Gio.DBusCallFlags.NONE, 5000, None, _done, None,
+        BUS_NAME,
+        OBJECT_PATH,
+        _INTERFACE,
+        method,
+        parameters,
+        reply_type,
+        Gio.DBusCallFlags.NONE,
+        5000,
+        None,
+        _done,
+        None,
     )
     loop.run()
     return result
@@ -121,6 +119,28 @@ def test_get_config_round_trips_over_live_dbus_dispatch(tmp_path, bus_address):
     assert "error" not in result, result.get("error")
     (toml_text,) = result["value"].unpack()
     assert toml_text == dump_config(cfg)
+
+
+def test_unexpected_handler_error_maps_to_dbus_failed(tmp_path, bus_address, monkeypatch):
+    cfg = default_config()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(dump_config(cfg))
+
+    conn = _connect(bus_address)
+    backend = MutterBackend(FakeMutterTransport())
+    orch = Orchestrator(backend, cfg, clock=lambda: datetime.now(ZoneInfo("UTC")))
+    service = DaemonService(orch, str(config_path))
+
+    def _boom():
+        raise OSError("boom")
+
+    monkeypatch.setattr(service, "get_status", _boom)
+    export_on_connection(service, conn)
+    _own_name_and_wait(conn)
+
+    result = _call(conn, "GetStatus", None, GLib.VariantType("(s)"))
+    assert "error" in result
+    assert Gio.DBusError.get_remote_error(result["error"]) == "org.freedesktop.DBus.Error.Failed"
 
 
 def test_set_config_round_trips_and_persists_over_live_dbus_dispatch(tmp_path, bus_address):
@@ -196,6 +216,5 @@ def test_invalid_set_manual_temp_maps_to_dbus_invalid_args_error(tmp_path, bus_a
     exc = result["error"]
     assert Gio.DBusError.get_remote_error(exc) == "org.freedesktop.DBus.Error.InvalidArgs"
 
-    # The rejected kelvin value must not have been stored: a subsequent tick
-    # must not raise (e.g. ZeroDivisionError from kelvin_to_mired(0)).
+    # The rejected kelvin value is not stored: a later tick must not raise.
     orch.tick()

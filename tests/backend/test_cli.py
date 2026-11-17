@@ -1,7 +1,11 @@
-from fluxmax.backend.cli import main
-from fluxmax.backend.mutter import MutterBackend
-from fluxmax.backend.transport import FakeMutterTransport
-from fluxmax.color import build_ramp
+import re
+import shlex
+from pathlib import Path
+
+from duskcurve.backend.cli import main
+from duskcurve.backend.mutter import MutterBackend
+from duskcurve.backend.transport import FakeMutterTransport
+from duskcurve.color import build_ramp
 
 
 def _backend(ramp_size=4096):
@@ -29,3 +33,29 @@ def test_list_flag_prints_displays(capsys):
     assert rc == 0
     out = capsys.readouterr().out
     assert "DP-2" in out and "HDMI-1" in out
+
+
+def test_temp_without_connector_applies_to_every_display(capsys):
+    be = _backend()
+    assert main(["--temp", "6500"], backend=be) == 0
+    crtcs = {call[1] for call in be._t.set_calls}
+    assert crtcs == {0, 1}
+
+
+def test_connector_without_temp_is_an_error(capsys):
+    assert main(["--connector", "DP-2"], backend=_backend()) == 2
+
+
+def test_uninstaller_reset_command_is_accepted():
+    root = Path(__file__).resolve().parents[2]
+    lib = (root / "scripts" / "lib.sh").read_text()
+    kelvin = re.search(r"^NEUTRAL_KELVIN=(\d+)", lib, re.M).group(1)
+    line = next(
+        ln
+        for ln in (root / "uninstall.sh").read_text().splitlines()
+        if 'bin/duskcurve-apply"' in ln and "--temp" in ln
+    )
+    argv = shlex.split(line.split('bin/duskcurve-apply"', 1)[1].split(";")[0])
+    argv = [a.replace("$NEUTRAL_KELVIN", kelvin) for a in argv]
+    argv = [a for a in argv if not a.startswith((">", "2>"))]
+    assert main(argv, backend=_backend()) == 0

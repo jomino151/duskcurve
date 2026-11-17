@@ -2,8 +2,8 @@ from datetime import datetime
 
 import pytest
 
-from fluxmax.daemon.config import KeypointConfig
-from fluxmax.gui.geometry import (
+from duskcurve.daemon.config import KeypointConfig
+from duskcurve.gui.geometry import (
     Viewport,
     hit_test,
     insert_index,
@@ -14,7 +14,7 @@ from fluxmax.gui.geometry import (
     x_to_minutes,
     y_to_kelvin,
 )
-from fluxmax.schedule.curve import DayContext
+from duskcurve.schedule.curve import DayContext
 
 VP = Viewport(width=1000.0, height=500.0, min_kelvin=1200.0, max_kelvin=6500.0, margin=20.0)
 
@@ -74,8 +74,8 @@ def test_keypoint_points_are_in_authored_order():
     )
     points = keypoint_points(kps, _ctx(), VP)
     assert len(points) == 3
-    assert points[0][0] == pytest.approx(minutes_to_x(600, VP))     # wake 10:00
-    assert points[1][0] == pytest.approx(minutes_to_x(1320, VP))    # sunset 21:00 + 60
+    assert points[0][0] == pytest.approx(minutes_to_x(600, VP))  # wake 10:00
+    assert points[1][0] == pytest.approx(minutes_to_x(1320, VP))  # sunset 21:00 + 60
     assert points[2][1] == pytest.approx(kelvin_to_y(2700.0, VP))
 
 
@@ -115,8 +115,8 @@ def test_segment_index_inside_the_walk():
 
 def test_segment_index_on_the_wrapping_last_segment():
     walk = [600.0, 1320.0, 1380.0]
-    assert segment_index(walk, 1400.0) == 2      # after the last keypoint
-    assert segment_index(walk, 100.0) == 2       # before the first, i.e. wrapped round
+    assert segment_index(walk, 1400.0) == 2  # after the last keypoint
+    assert segment_index(walk, 100.0) == 2  # before the first, i.e. wrapped round
 
 
 def test_segment_index_exactly_on_a_keypoint_belongs_to_the_segment_it_starts():

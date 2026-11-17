@@ -3,8 +3,8 @@ import sys
 
 import pytest
 
-from fluxmax.daemon.rules import WindowState
-from fluxmax.daemon.watcher import (
+from duskcurve.daemon.rules import WindowState
+from duskcurve.daemon.watcher import (
     WATCHER_BUS_NAME,
     WATCHER_INTERFACE,
     WATCHER_OBJECT_PATH,
@@ -15,9 +15,9 @@ from fluxmax.daemon.watcher import (
 
 
 def test_contract_constants_are_frozen():
-    assert WATCHER_BUS_NAME == "org.fluxmax.WindowWatcher"
-    assert WATCHER_OBJECT_PATH == "/org/fluxmax/WindowWatcher"
-    assert WATCHER_INTERFACE == "org.fluxmax.WindowWatcher"
+    assert WATCHER_BUS_NAME == "org.duskcurve.WindowWatcher"
+    assert WATCHER_OBJECT_PATH == "/org/duskcurve/WindowWatcher"
+    assert WATCHER_INTERFACE == "org.duskcurve.WindowWatcher"
 
 
 def test_decode_empty_app_id_means_no_window():
@@ -42,26 +42,34 @@ def test_decode_windows_empty_payload():
 
 
 def test_decode_windows_splits_focused_from_unfocused():
-    focused, unfocused = decode_windows_payload([
-        ("mpv", True, False, "DP-2"),
-        ("org.gnome.Console", False, True, "HDMI-1"),
-    ])
+    focused, unfocused = decode_windows_payload(
+        [
+            ("mpv", True, False, "DP-2"),
+            ("org.gnome.Console", False, True, "HDMI-1"),
+        ]
+    )
     assert focused == WindowState("org.gnome.Console", False, "HDMI-1")
     assert unfocused == (WindowState("mpv", True, "DP-2"),)
 
 
 def test_decode_windows_drops_blank_app_ids():
-    focused, unfocused = decode_windows_payload([
-        ("", True, False, "DP-2"), ("  ", False, True, "HDMI-1"),
-    ])
+    focused, unfocused = decode_windows_payload(
+        [
+            ("", True, False, "DP-2"),
+            ("  ", False, True, "HDMI-1"),
+        ]
+    )
     assert focused is None
     assert unfocused == ()
 
 
 def test_decode_windows_keeps_only_the_first_focused_entry():
-    focused, unfocused = decode_windows_payload([
-        ("a", False, True, "DP-2"), ("b", True, True, "HDMI-1"),
-    ])
+    focused, unfocused = decode_windows_payload(
+        [
+            ("a", False, True, "DP-2"),
+            ("b", True, True, "HDMI-1"),
+        ]
+    )
     assert focused == WindowState("a", False, "DP-2")
     assert unfocused == (WindowState("b", True, "HDMI-1"),)
 
@@ -75,8 +83,13 @@ def test_decode_windows_coerces_types():
 def test_negotiation_prefers_getwindows():
     seen = []
     w = WindowWatcher(lambda f, u: seen.append((f, u)))
-    w._negotiate(lambda name: [("mpv", True, False, "DP-2")]
-                 if name == "GetWindows" else pytest.fail("legacy path used"))
+    w._negotiate(
+        lambda name: (
+            [("mpv", True, False, "DP-2")]
+            if name == "GetWindows"
+            else pytest.fail("legacy path used")
+        )
+    )
     assert w._modern is True
     assert seen == [(None, (WindowState("mpv", True, "DP-2"),))]
 
@@ -117,7 +130,7 @@ def test_a_raising_callback_does_not_escape_the_handlers():
 
     w = WindowWatcher(boom)
     w._modern = True
-    w._handle_windows_changed([("mpv", True, False, "DP-2")])   # must not raise
+    w._handle_windows_changed([("mpv", True, False, "DP-2")])  # must not raise
 
 
 def test_stop_unsubscribes_both_signal_subscriptions():
@@ -140,53 +153,42 @@ def test_construction_does_no_dbus_work():
     seen = []
     w = WindowWatcher(lambda f, u: seen.append((f, u)))
     assert seen == []
-    w.stop()          # safe without start()
+    w.stop()  # safe without start()
 
 
-def test_importing_fluxmax_daemon_watcher_does_not_pull_in_gi():
-    # Subprocess (not a source-text scan) so this proves the actual runtime
-    # behavior: importing fluxmax.daemon.watcher itself -- not just
-    # fluxmax.daemon, which does not import watcher at all -- stays gi-free
+def test_importing_duskcurve_daemon_watcher_does_not_pull_in_gi():
+    # A subprocess checks real runtime behaviour: the watcher module stays gi-free
     # until WindowWatcher.start() is called.
     code = (
-        "import sys; import fluxmax.daemon.watcher; "
+        "import sys; import duskcurve.daemon.watcher; "
         "assert not any(m == 'gi' or m.startswith('gi.') for m in sys.modules), "
-        "'fluxmax.daemon.watcher pulled in gi'"
+        "'duskcurve.daemon.watcher pulled in gi'"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
-def test_importing_fluxmax_daemon_does_not_pull_in_gi():
+def test_importing_duskcurve_daemon_does_not_pull_in_gi():
     code = (
-        "import sys; import fluxmax.daemon; "
+        "import sys; import duskcurve.daemon; "
         "assert not any(m == 'gi' or m.startswith('gi.') for m in sys.modules), "
-        "'fluxmax.daemon pulled in gi'"
+        "'duskcurve.daemon pulled in gi'"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
 # ----------------------------------------------------------------------
-# Producer/consumer integration test over a real (private) D-Bus.
+# Producer/consumer integration test over a private D-Bus.
 #
-# Everything in WindowWatcher.start() -- the name watch, signal_subscribe's
-# argument order, the GetState call_sync, and result.unpack() against the
-# extension's actual (sbs) XML -- has never executed against a real bus.
-# This is the one hop where the extension and the daemon, built separately
-# from the same frozen contract, could silently disagree. The stub server
-# below exports the interface XML read verbatim out of the extension's own
-# extension/focused-window@fluxmax/dbus.js, not retyped from the plan, so a
-# real mismatch would actually be caught here.
+# The stub server exports the interface XML read verbatim from the extension's
+# dbus.js, so a contract mismatch between extension and daemon is caught here.
 # ----------------------------------------------------------------------
 
 import pathlib  # noqa: E402
 import threading  # noqa: E402
 import time  # noqa: E402
 
-# This module also holds plain unit tests (decode_focus_payload, WindowState,
-# construction) that must keep running even where gi/Gio is unavailable, so
-# -- unlike test_main_smoke.py, which is entirely D-Bus tests -- we do not
-# pytest.importorskip() at module level. Only the fixture below (and thus the
-# one test that depends on it) skips if this import fails.
+# Plain unit tests here must run without gi/Gio, so there is no module-level
+# importorskip; only the D-Bus fixture (and its test) skips when the import fails.
 try:
     import gi
 
@@ -200,17 +202,11 @@ except Exception as exc:  # pragma: no cover -- environment dependent
     _GI_IMPORT_ERROR = exc
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-_DBUS_JS = _REPO_ROOT / "extension" / "focused-window@fluxmax" / "dbus.js"
+_DBUS_JS = _REPO_ROOT / "extension" / "focused-window@duskcurve" / "dbus.js"
 
 
 def _load_iface_xml_from_extension() -> str:
-    """Extract IFACE_XML verbatim from the extension's dbus.js source.
-
-    Reading it out of the real producer's source (rather than retyping the
-    XML here from the plan/spec) is the point of this test: it proves the
-    daemon's consumer actually agrees with what the extension actually
-    exports, not with someone's memory of the contract.
-    """
+    """Extract IFACE_XML verbatim from the extension's dbus.js (the real contract)."""
     text = _DBUS_JS.read_text(encoding="utf-8")
     marker = "export const IFACE_XML = `"
     start = text.index(marker) + len(marker)
@@ -240,19 +236,10 @@ def test_bus_address():
 
 
 def _pump_until(predicate, timeout=5.0):
-    """Iterate the default main context until predicate() is true or a
-    wall-clock deadline elapses.
+    """Iterate the default main context until predicate() is true or the deadline passes.
 
-    A bare `while not predicate(): ctx.iteration(True)` could hang the test
-    suite forever if the expected event never arrives (e.g. a contract
-    mismatch swallowed by an exception handler): iteration(True) blocks until
-    *some* source becomes ready, and if none ever does, it never returns --
-    so no iteration count is ever enough to bound it. To make the deadline
-    real, a periodic GLib.timeout_add guard source is attached to the same
-    context; it guarantees the context always has something to dispatch, so
-    iteration(True) always returns promptly and the wall-clock deadline
-    below actually gets enforced. Returns False (never hangs, never raises)
-    on timeout, so callers can assert on it with their own message.
+    A periodic guard timeout keeps iteration(True) from blocking forever, so the deadline is
+    enforced. Returns False on timeout.
     """
     ctx = GLib.MainContext.default()
     deadline = time.monotonic() + timeout
@@ -268,9 +255,7 @@ def _pump_until(predicate, timeout=5.0):
 
 
 def _export_stub_producer(connection, iface_xml, get_state_seed):
-    """Export a minimal org.fluxmax.WindowWatcher object that answers GetState()
-    with `get_state_seed` and otherwise does nothing -- standing in for the
-    real extension/focused-window@fluxmax service.js."""
+    """Export a stub WindowWatcher object that answers GetState() with `get_state_seed`."""
     node_info = Gio.DBusNodeInfo.new_for_xml(iface_xml)
     interface_info = node_info.interfaces[0]
 
@@ -286,26 +271,16 @@ def _export_stub_producer(connection, iface_xml, get_state_seed):
                 f"Unknown method {method_name}",
             )
 
-    return connection.register_object(
-        WATCHER_OBJECT_PATH, interface_info, handle_method_call, None, None
-    )
+    register = getattr(connection, "register_object_with_closures2", connection.register_object)
+    return register(WATCHER_OBJECT_PATH, interface_info, handle_method_call, None, None)
 
 
 class _ProducerThread(threading.Thread):
-    """Runs the stub org.fluxmax.WindowWatcher producer on its own thread with
-    its own private GMainContext.
+    """Runs the stub producer on its own thread with its own GMainContext.
 
-    This mirrors reality -- the real producer (the GNOME Shell extension) is a
-    wholly separate OS process with its own independent main loop -- and it is
-    load-bearing for this test, not decoration: WindowWatcher.start()'s
-    on_appeared handler makes a *synchronous* connection.call_sync() GetState()
-    call from the consumer's default-context dispatch. If the producer's
-    incoming-message handling were serviced by that same default context
-    (e.g. by exporting it on the main thread instead), the synchronous call
-    would deadlock/time out -- there would be nothing left to pump that
-    context and let the producer's handler run while call_sync blocks
-    waiting on it. A separate thread + context sidesteps that entirely, just
-    as a separate process would.
+    WindowWatcher.start() makes a synchronous GetState call from the default context; a producer
+    served by that same context would deadlock. The real extension is a separate process, so the
+    stub gets its own thread.
     """
 
     def __init__(self, bus_address: str, iface_xml: str, get_state_seed: tuple) -> None:
@@ -378,8 +353,7 @@ def test_producer_consumer_round_trip_over_live_dbus(test_bus_address):
     try:
         watcher.start()
 
-        # The stub producer only exports GetState -- GetWindows is unknown,
-        # so negotiation must fall back to the legacy protocol.
+        # The stub only exports GetState, so negotiation falls back to the legacy protocol.
         assert _pump_until(lambda: len(received) >= 1), "timed out waiting for GetState seed"
         assert watcher._modern is False
         assert received[0] == (
@@ -387,9 +361,7 @@ def test_producer_consumer_round_trip_over_live_dbus(test_bus_address):
             (),
         )
 
-        # A live FocusChanged signal. emit_signal() is documented thread-safe
-        # and does not require the producer thread's context to be pumped --
-        # only *receiving* (GetState above) does.
+        # A live FocusChanged signal; emit_signal() is thread-safe.
         del received[:]
         producer.connection.emit_signal(
             None,
@@ -418,3 +390,12 @@ def test_producer_consumer_round_trip_over_live_dbus(test_bus_address):
     finally:
         watcher.stop()
         producer.stop()
+
+
+def test_extension_and_daemon_agree_on_the_bus_name():
+    js = (_REPO_ROOT / "extension/focused-window@duskcurve/dbus.js").read_text()
+    from duskcurve.daemon import watcher
+
+    assert watcher.WATCHER_BUS_NAME == "org.duskcurve.WindowWatcher"
+    assert f"'{watcher.WATCHER_BUS_NAME}'" in js
+    assert f"'{watcher.WATCHER_OBJECT_PATH}'" in js

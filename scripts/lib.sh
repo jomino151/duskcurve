@@ -1,36 +1,34 @@
 #!/usr/bin/env bash
-# Shared facts and mechanics for install.sh and uninstall.sh.
-#
-# Sourced, never executed: it deliberately sets no shell options of its own,
-# and contains no install/uninstall policy -- only the paths both entry
-# points must agree on, plus small helpers.
+# Shared paths and helpers for install.sh and uninstall.sh.
+# Sourced, never executed: sets no shell options and holds no install policy.
+# shellcheck disable=SC2034  # variables are consumed by the scripts that source this file
 
-EXT_UUID="focused-window@fluxmax"
-CONSOLE_SCRIPTS=(fluxmax-daemon fluxmax-gui fluxmax-apply)
-UNIT_NAME="fluxmax-daemon.service"
-DESKTOP_FILE="org.fluxmax.gui.desktop"
-ICON_NAME="org.fluxmax.gui.svg"
+EXT_UUID="focused-window@duskcurve"
+CONSOLE_SCRIPTS=(duskcurve-daemon duskcurve-gui duskcurve-apply)
+UNIT_NAME="duskcurve-daemon.service"
+DESKTOP_FILE="org.duskcurve.gui.desktop"
+ICON_NAME="org.duskcurve.gui.svg"
 NEUTRAL_KELVIN=6500
 
-# Duplicated from fluxmax/backend/nightlight.py:7-8 because bash cannot import
-# it. tests/packaging/test_lib.py asserts these two still agree with that file.
+# Duplicated from duskcurve/backend/nightlight.py because bash cannot import it;
+# tests/packaging/test_lib.py asserts they agree.
 NIGHT_LIGHT_SCHEMA="org.gnome.settings-daemon.plugins.color"
 NIGHT_LIGHT_KEY="night-light-enabled"
 
-FLUXMAX_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
-FLUXMAX_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
-FLUXMAX_HOME="$FLUXMAX_DATA_HOME/fluxmax"
-FLUXMAX_VENV="$FLUXMAX_HOME/venv"
-FLUXMAX_STATE_FILE="$FLUXMAX_HOME/install-state"
-FLUXMAX_BIN_DIR="$HOME/.local/bin"
-FLUXMAX_UNIT_DIR="$FLUXMAX_CONFIG_HOME/systemd/user"
-FLUXMAX_EXT_DIR="$FLUXMAX_DATA_HOME/gnome-shell/extensions"
-FLUXMAX_APP_DIR="$FLUXMAX_DATA_HOME/applications"
-FLUXMAX_ICON_THEME_DIR="$FLUXMAX_DATA_HOME/icons/hicolor"
-FLUXMAX_ICON_DIR="$FLUXMAX_ICON_THEME_DIR/scalable/apps"
-FLUXMAX_CONFIG_FILE="$FLUXMAX_CONFIG_HOME/fluxmax/config.toml"
+DUSKCURVE_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+DUSKCURVE_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+DUSKCURVE_HOME="$DUSKCURVE_DATA_HOME/duskcurve"
+DUSKCURVE_VENV="$DUSKCURVE_HOME/venv"
+DUSKCURVE_STATE_FILE="$DUSKCURVE_HOME/install-state"
+DUSKCURVE_BIN_DIR="$HOME/.local/bin"
+DUSKCURVE_UNIT_DIR="$DUSKCURVE_CONFIG_HOME/systemd/user"
+DUSKCURVE_EXT_DIR="$DUSKCURVE_DATA_HOME/gnome-shell/extensions"
+DUSKCURVE_APP_DIR="$DUSKCURVE_DATA_HOME/applications"
+DUSKCURVE_ICON_THEME_DIR="$DUSKCURVE_DATA_HOME/icons/hicolor"
+DUSKCURVE_ICON_DIR="$DUSKCURVE_ICON_THEME_DIR/scalable/apps"
+DUSKCURVE_CONFIG_FILE="$DUSKCURVE_CONFIG_HOME/duskcurve/config.toml"
 
-FLUXMAX_PYTHON="${FLUXMAX_PYTHON:-python3}"
+DUSKCURVE_PYTHON="${DUSKCURVE_PYTHON:-python3}"
 
 log()  { printf '==> %s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
@@ -39,24 +37,23 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 state_set() {
     local key="$1" value="$2"
-    mkdir -p "$(dirname "$FLUXMAX_STATE_FILE")"
-    if [ -f "$FLUXMAX_STATE_FILE" ]; then
-        # Upsert: drop any existing line for this key before appending, so a
-        # re-install cannot leave two values for one key.
+    mkdir -p "$(dirname "$DUSKCURVE_STATE_FILE")"
+    if [ -f "$DUSKCURVE_STATE_FILE" ]; then
+        # Upsert: drop any existing line for the key so a re-install leaves one value.
         local tmp
         tmp="$(mktemp)"
-        grep -v "^${key}=" "$FLUXMAX_STATE_FILE" > "$tmp" || true
-        mv "$tmp" "$FLUXMAX_STATE_FILE"
+        grep -v "^${key}=" "$DUSKCURVE_STATE_FILE" > "$tmp" || true
+        mv "$tmp" "$DUSKCURVE_STATE_FILE"
     else
-        printf '# flux-max install state -- written by install.sh, read by uninstall.sh\n' \
-            > "$FLUXMAX_STATE_FILE"
+        printf '# Duskcurve install state -- written by install.sh, read by uninstall.sh\n' \
+            > "$DUSKCURVE_STATE_FILE"
     fi
-    printf '%s=%s\n' "$key" "$value" >> "$FLUXMAX_STATE_FILE"
+    printf '%s=%s\n' "$key" "$value" >> "$DUSKCURVE_STATE_FILE"
 }
 
 state_get() {
     local key="$1" line
-    [ -f "$FLUXMAX_STATE_FILE" ] || return 1
-    line="$(grep -m1 "^${key}=" "$FLUXMAX_STATE_FILE")" || return 1
+    [ -f "$DUSKCURVE_STATE_FILE" ] || return 1
+    line="$(grep -m1 "^${key}=" "$DUSKCURVE_STATE_FILE")" || return 1
     printf '%s\n' "${line#*=}"
 }

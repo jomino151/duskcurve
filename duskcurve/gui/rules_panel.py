@@ -1,0 +1,492 @@
+"""The Rules view: app and window rules that override the schedule.
+
+Order is semantics (`resolve_rules` is first-match-wins), so rows show their position.
+`_render()` is a no-op while the add/edit dialog is open, so a poll cannot reorder its rows.
+"""
+
+import logging
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+
+from gi.repository import Adw, GObject, Gtk  # noqa: E402
+
+from duskcurve.daemon.config import Config  # noqa: E402
+from duskcurve.daemon.rules import Rule  # noqa: E402
+from duskcurve.gui.editing import (  # noqa: E402
+    add_rule,
+    delete_rule,
+    move_rule,
+    replace_rule,
+    with_rules,
+)
+from duskcurve.gui.rules_logic import (  # noqa: E402
+    _day_kelvin,
+    _rule_validation_error,
+    _summarize,
+    _window_states,
+    _winning_indices,
+)
+from duskcurve.gui.state import AppState  # noqa: E402
+
+log = logging.getLogger("duskcurve.gui.rules_panel")
+
+_ACTIONS = ("disable", "force_day", "fixed")
+_BUILTIN_SCOPES = ("all", "window_monitor")
+
+_GLOB_HINT = (
+    "Case-sensitive shell glob, e.g. org.gnome.Nautilus or Gimp-*. "
+    "The app ID is the GTK application ID, else the Flatpak sandbox ID, else "
+    "WM_CLASS — so it is often not the app's visible name. Print the exact ID "
+    "for any window with:\n"
+    "gdbus monitor --session --dest org.duskcurve.WindowWatcher"
+)
+
+
+class _RuleRow:
+    """One persistent `Adw.ActionRow` in the list.
+
+    Rows outlive polls, so `update()` re-stamps the index and `Rule` the row stands for, and
+    handlers verify them against the live config.
+    """
+
+    def __init__(self, view: "RulesView") -> None:
+        self._view = view
+        self.index = -1
+        self.rule: Rule | None = None
+        self.highlighted = False
+
+        self.row = Adw.ActionRow()
+
+        self.up_button = Gtk.Button(icon_name="go-up-symbolic")
+        self.up_button.set_valign(Gtk.Align.CENTER)
+        self.up_button.connect("clicked", view._on_move_clicked, self, -1)
+        self.row.add_suffix(self.up_button)
+
+        self.down_button = Gtk.Button(icon_name="go-down-symbolic")
+        self.down_button.set_valign(Gtk.Align.CENTER)
+        self.down_button.connect("clicked", view._on_move_clicked, self, 1)
+        self.row.add_suffix(self.down_button)
+
+        self.edit_button = Gtk.Button(icon_name="document-edit-symbolic")
+        self.edit_button.set_valign(Gtk.Align.CENTER)
+        self.edit_button.connect("clicked", view._on_edit_clicked, self)
+        self.row.add_suffix(self.edit_button)
+
+        self.delete_button = Gtk.Button(icon_name="user-trash-symbolic")
+        self.delete_button.set_valign(Gtk.Align.CENTER)
+        self.delete_button.connect("clicked", view._on_delete_clicked, self)
+        self.row.add_suffix(self.delete_button)
+
+    def update(
+        self,
+        index: int,
+        rule: Rule,
+        count: int,
+        matching: list[str],
+        day_kelvin: float,
+    ) -> None:
+        self.index = index
+        self.rule = rule
+
+        self.row.set_title(f"{index + 1}. {_summarize(rule, day_kelvin)}")
+        if matching:
+            self.row.set_subtitle("Currently active on: " + ", ".join(matching))
+            if not self.highlighted:
+                self.row.add_css_class("accent")
+                self.highlighted = True
+        else:
+            self.row.set_subtitle("")
+            if self.highlighted:
+                self.row.remove_css_class("accent")
+                self.highlighted = False
+
+        self.up_button.set_sensitive(index > 0)
+        self.down_button.set_sensitive(index < count - 1)
+
+
+class _RuleDialog(Adw.Dialog):
+    """Add/edit dialog for a single rule. `on_save(rule, index)` is called
+    with a validated `Rule`; `index` is None for a new rule."""
+
+    def __init__(self, connectors: tuple[str, ...], rule: Rule | None, index: int | None, on_save):
+        super().__init__()
+        self._on_save = on_save
+        self._index = index
+        self.set_title("Edit rule" if rule is not None else "Add rule")
+        self.set_content_width(420)
+
+        toolbar_view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        toolbar_view.add_top_bar(header)
+
+        cancel_button = Gtk.Button(label="Cancel")
+        cancel_button.connect("clicked", lambda _b: self.close())
+        header.pack_start(cancel_button)
+
+        save_button = Gtk.Button(label="Save")
+        save_button.add_css_class("suggested-action")
+        save_button.connect("clicked", self._on_save_clicked)
+        header.pack_end(save_button)
+
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        page.set_margin_top(12)
+        page.set_margin_bottom(12)
+        page.set_margin_start(12)
+        page.set_margin_end(12)
+
+        # Own group so the hint can render: Adw.EntryRow has no subtitle, so a group
+        # description is the only place for per-field text.
+        match_group = Adw.PreferencesGroup(description=_GLOB_HINT)
+
+        self._glob_row = Adw.EntryRow(title="App ID glob (empty = any app)")
+        if rule is not None and rule.match_app_glob:
+            self._glob_row.set_text(rule.match_app_glob)
+        match_group.add(self._glob_row)
+
+        group = Adw.PreferencesGroup()
+
+        self._fullscreen_row = Adw.SwitchRow(title="Fullscreen only")
+        self._fullscreen_row.set_active(rule.match_fullscreen if rule is not None else False)
+        self._fullscreen_row.connect("notify::active", self._on_fullscreen_changed)
+        group.add(self._fullscreen_row)
+
+        self._unfocused_row = Adw.SwitchRow(
+            title="Also when not focused",
+            subtitle="Keep acting while the window stays fullscreen but loses focus",
+        )
+        self._unfocused_row.set_active(rule.match_unfocused if rule is not None else False)
+        group.add(self._unfocused_row)
+        self._on_fullscreen_changed(self._fullscreen_row, None)
+
+        action_model = Gtk.StringList.new(list(_ACTIONS))
+        self._action_row = Adw.ComboRow(title="Action", model=action_model)
+        self._action_row.set_selected(_ACTIONS.index(rule.action) if rule is not None else 0)
+        self._action_row.connect("notify::selected", self._on_action_changed)
+        group.add(self._action_row)
+
+        self._kelvin_row = Adw.SpinRow.new_with_range(1000, 20000, 50)
+        self._kelvin_row.set_title("Kelvin")
+        self._kelvin_row.set_digits(0)
+        default_kelvin = (
+            rule.action_kelvin if rule is not None and rule.action_kelvin is not None else 6500
+        )
+        self._kelvin_row.set_value(default_kelvin)
+        group.add(self._kelvin_row)
+
+        scope_labels = list(_BUILTIN_SCOPES) + list(connectors)
+        scope_model = Gtk.StringList.new(scope_labels)
+        self._scope_row = Adw.ComboRow(title="Scope", model=scope_model)
+        if rule is not None and rule.scope in scope_labels:
+            self._scope_row.set_selected(scope_labels.index(rule.scope))
+        else:
+            self._scope_row.set_selected(scope_labels.index("window_monitor"))
+        group.add(self._scope_row)
+
+        self._scope_labels = scope_labels
+        self._update_kelvin_sensitivity()
+
+        page.append(match_group)
+        page.append(group)
+
+        self._error_label = Gtk.Label(label="")
+        self._error_label.set_wrap(True)
+        self._error_label.set_xalign(0)
+        self._error_label.add_css_class("error")
+        self._error_label.set_visible(False)
+        page.append(self._error_label)
+
+        toolbar_view.set_content(page)
+        self.set_child(toolbar_view)
+
+    def _on_action_changed(self, _row: Adw.ComboRow, _pspec: GObject.ParamSpec) -> None:
+        self._update_kelvin_sensitivity()
+
+    def _on_fullscreen_changed(
+        self, _row: Adw.SwitchRow, _pspec: "GObject.ParamSpec | None"
+    ) -> None:
+        fullscreen = self._fullscreen_row.get_active()
+        self._unfocused_row.set_sensitive(fullscreen)
+        if not fullscreen:
+            self._unfocused_row.set_active(False)
+
+    def _update_kelvin_sensitivity(self) -> None:
+        action = _ACTIONS[self._action_row.get_selected()]
+        self._kelvin_row.set_sensitive(action == "fixed")
+
+    def show_apply_error(self, message: str) -> None:
+        self._error_label.set_label(message)
+        self._error_label.set_visible(True)
+
+    def _on_save_clicked(self, _button: Gtk.Button) -> None:
+        try:
+            app_glob_text = self._glob_row.get_text().strip()
+            app_glob = app_glob_text if app_glob_text else None
+            fullscreen = self._fullscreen_row.get_active()
+            unfocused = self._unfocused_row.get_active()
+            action = _ACTIONS[self._action_row.get_selected()]
+            kelvin = round(self._kelvin_row.get_value())
+            scope = self._scope_labels[self._scope_row.get_selected()]
+
+            error = _rule_validation_error(app_glob, fullscreen, unfocused, action, kelvin)
+            if error is not None:
+                self.show_apply_error(error)
+                return
+
+            rule = Rule(
+                action=action,
+                match_app_glob=app_glob,
+                match_fullscreen=fullscreen,
+                match_unfocused=unfocused,
+                action_kelvin=kelvin if action == "fixed" else None,
+                scope=scope,
+            )
+            self._on_save(rule, self._index, self)
+        except Exception as exc:
+            log.exception("rule dialog save failed")
+            self.show_apply_error(str(exc))
+
+
+class RulesView(Gtk.Box):
+    def __init__(self, state: AppState) -> None:
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self._state = state
+
+        self._rendering = False
+        self._dialog_open = False
+        # One persistent row per rule, in config order.
+        self._rows: list[_RuleRow] = []
+
+        self.set_margin_top(12)
+        self.set_margin_bottom(12)
+        self.set_margin_start(12)
+        self.set_margin_end(12)
+
+        header = Gtk.Label(
+            label=(
+                "Rules are checked top to bottom -- the first matching rule wins, "
+                "the rest are ignored."
+            )
+        )
+        header.set_wrap(True)
+        header.set_xalign(0)
+        header.add_css_class("dim-label")
+        self.append(header)
+
+        self._toast_overlay = Adw.ToastOverlay()
+        self._toast_overlay.set_vexpand(True)
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_vexpand(True)
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+
+        self._list_box = Gtk.ListBox()
+        self._list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        self._list_box.add_css_class("boxed-list")
+        self._list_box.set_valign(Gtk.Align.START)
+        scroller.set_child(self._list_box)
+        self._toast_overlay.set_child(scroller)
+        self.append(self._toast_overlay)
+
+        add_button = Gtk.Button(label="Add rule")
+        add_button.set_halign(Gtk.Align.START)
+        add_button.connect("clicked", self._on_add_clicked)
+        self.append(add_button)
+
+        self._state.subscribe(self._render)
+        self._render()
+
+    # -- rendering ------------------------------------------------------
+
+    def _render(self) -> None:
+        cfg = self._state.config
+        if cfg is None:
+            self.set_sensitive(False)
+            return
+        self.set_sensitive(True)
+
+        if self._dialog_open:
+            return
+
+        self._rendering = True
+        try:
+            self._sync_rows(cfg)
+        finally:
+            self._rendering = False
+
+    def _sync_rows(self, cfg: Config) -> None:
+        """Bring the list in line with the config without tearing it down.
+
+        Rows are added or removed only when the number of rules changes; everything else is
+        written in place, so keyboard focus and hover survive each poll.
+        """
+        status = self._state.status
+        connectors = tuple(d.connector for d in status.displays) if status is not None else ()
+        window, unfocused = _window_states(status)
+
+        try:
+            winners = _winning_indices(cfg.rules, window, connectors, _day_kelvin(cfg), unfocused)
+        except Exception:
+            # Highlighting is best-effort: a malformed rule on disk must not stop the list
+            # rendering, and set_error() here would re-enter _render() on every poll.
+            log.exception("could not resolve rules for match highlighting")
+            winners = {}
+
+        while len(self._rows) > len(cfg.rules):
+            row = self._rows.pop()
+            self._list_box.remove(row.row)
+        while len(self._rows) < len(cfg.rules):
+            row = _RuleRow(self)
+            self._rows.append(row)
+            self._list_box.append(row.row)
+
+        day_kelvin = _day_kelvin(cfg)
+        for index, rule in enumerate(cfg.rules):
+            matching = sorted(connector for connector, i in winners.items() if i == index)
+            self._rows[index].update(index, rule, len(cfg.rules), matching, day_kelvin)
+
+    def _live_index(self, row: _RuleRow) -> int | None:
+        """The row's index, or None if the row no longer describes the config.
+
+        A row can outlive the rule it was stamped with (external TOML edit, or another action),
+        so handlers re-read the config and confirm the rule at the index is still the row's.
+        """
+        cfg = self._state.config
+        if cfg is None or row.rule is None:
+            return None
+        index = row.index
+        if not 0 <= index < len(cfg.rules):
+            return None
+        if cfg.rules[index] != row.rule:
+            return None
+        return index
+
+    # -- add / edit -------------------------------------------------------
+
+    def _on_add_clicked(self, _button: Gtk.Button) -> None:
+        if self._rendering:
+            return
+        self._open_dialog(rule=None, index=None)
+
+    def _on_edit_clicked(self, _button: Gtk.Button, row: _RuleRow) -> None:
+        if self._rendering:
+            return
+        index = self._live_index(row)
+        if index is None:
+            return
+        cfg = self._state.config
+        if cfg is None:
+            return
+        self._open_dialog(rule=cfg.rules[index], index=index)
+
+    def _open_dialog(self, rule: Rule | None, index: int | None) -> None:
+        status = self._state.status
+        connectors = tuple(d.connector for d in status.displays) if status is not None else ()
+        dialog = _RuleDialog(connectors, rule, index, self._on_dialog_save)
+        dialog.connect("closed", self._on_dialog_closed)
+        self._dialog_open = True
+        dialog.present(self)
+
+    def _on_dialog_closed(self, _dialog: Adw.Dialog) -> None:
+        self._dialog_open = False
+        self._render()
+
+    def _on_dialog_save(self, rule: Rule, index: int | None, dialog: _RuleDialog) -> None:
+        cfg = self._state.config
+        if cfg is None:
+            dialog.show_apply_error("Not connected to the daemon.")
+            return
+        if index is None:
+            new_rules = add_rule(cfg.rules, rule)
+        else:
+            try:
+                new_rules = replace_rule(cfg.rules, index, rule)
+            except IndexError:
+                dialog.show_apply_error(
+                    "This rule no longer exists -- the configuration changed while "
+                    "the dialog was open. Close and reopen to edit the current list."
+                )
+                return
+
+        try:
+            ok = self._state.apply_config(with_rules(cfg, new_rules))
+        except Exception as exc:
+            log.exception("apply_config raised while saving a rule")
+            dialog.show_apply_error(str(exc))
+            return
+
+        if ok:
+            dialog.close()
+        else:
+            message = self._state.last_error or "The daemon rejected this rule."
+            dialog.show_apply_error(message)
+
+    # -- move / delete ------------------------------------------------------
+
+    def _on_move_clicked(self, _button: Gtk.Button, row: _RuleRow, delta: int) -> None:
+        if self._rendering:
+            return
+        index = self._live_index(row)
+        if index is None:
+            return
+        cfg = self._state.config
+        if cfg is None:
+            return
+        try:
+            new_rules = move_rule(cfg.rules, index, delta)
+        except IndexError:
+            return
+        try:
+            self._state.apply_config(with_rules(cfg, new_rules))
+        except Exception as exc:
+            log.exception("apply_config raised while moving a rule")
+            self._state.set_error(str(exc))
+
+    def _on_delete_clicked(self, _button: Gtk.Button, row: _RuleRow) -> None:
+        if self._rendering:
+            return
+        index = self._live_index(row)
+        if index is None:
+            return
+        cfg = self._state.config
+        if cfg is None:
+            return
+        deleted_rule = cfg.rules[index]
+        try:
+            new_rules = delete_rule(cfg.rules, index)
+        except IndexError:
+            return
+        try:
+            ok = self._state.apply_config(with_rules(cfg, new_rules))
+        except Exception as exc:
+            log.exception("apply_config raised while deleting a rule")
+            self._state.set_error(str(exc))
+            return
+        if ok:
+            self._show_undo_toast(deleted_rule, index)
+
+    def _show_undo_toast(self, deleted_rule: Rule, index: int) -> None:
+        toast = Adw.Toast(title="Rule deleted")
+        toast.set_button_label("Undo")
+        toast.connect("button-clicked", self._on_undo_delete, deleted_rule, index)
+        self._toast_overlay.add_toast(toast)
+
+    def _on_undo_delete(self, _toast: Adw.Toast, deleted_rule: Rule, index: int) -> None:
+        # Splice into the current rules, not a pre-delete snapshot, which would discard
+        # any change made since.
+        cfg = self._state.config
+        if cfg is None:
+            return
+        current = cfg.rules
+        target = min(index, len(current))
+        if target < len(current) and current[target] == deleted_rule:
+            # Already restored (e.g. a double click on the toast button).
+            return
+        new_rules = (*current[:target], deleted_rule, *current[target:])
+        try:
+            self._state.apply_config(with_rules(cfg, new_rules))
+        except Exception as exc:
+            log.exception("apply_config raised while undoing a rule delete")
+            self._state.set_error(str(exc))
