@@ -137,8 +137,8 @@ mkdir -p "$DUSKCURVE_ICON_DIR" "$DUSKCURVE_APP_DIR"
 install -m 0644 "$REPO_DIR/data/icons/$ICON_NAME" "$DUSKCURVE_ICON_DIR/$ICON_NAME"
 install -m 0644 "$REPO_DIR/data/$DESKTOP_FILE" "$DUSKCURVE_APP_DIR/$DESKTOP_FILE"
 # Both refreshers are optional: a stale cache costs an icon, not an install.
-have gtk-update-icon-cache && gtk-update-icon-cache -qtf "$DUSKCURVE_ICON_THEME_DIR" || true
-have update-desktop-database && update-desktop-database -q "$DUSKCURVE_APP_DIR" || true
+if have gtk-update-icon-cache; then gtk-update-icon-cache -qtf "$DUSKCURVE_ICON_THEME_DIR" || true; fi
+if have update-desktop-database; then update-desktop-database -q "$DUSKCURVE_APP_DIR" || true; fi
 log "Installed the icon and desktop entry"
 
 # --- 7. extension ------------------------------------------------------------

@@ -70,8 +70,8 @@ fi
 
 # --- 5. desktop file, icon, console scripts ----------------------------------
 rm -f "$DUSKCURVE_APP_DIR/$DESKTOP_FILE" "$DUSKCURVE_ICON_DIR/$ICON_NAME"
-have gtk-update-icon-cache && gtk-update-icon-cache -qtf "$DUSKCURVE_ICON_THEME_DIR" || true
-have update-desktop-database && update-desktop-database -q "$DUSKCURVE_APP_DIR" || true
+if have gtk-update-icon-cache; then gtk-update-icon-cache -qtf "$DUSKCURVE_ICON_THEME_DIR" || true; fi
+if have update-desktop-database; then update-desktop-database -q "$DUSKCURVE_APP_DIR" || true; fi
 for script in "${CONSOLE_SCRIPTS[@]}"; do
     # Only ever remove our own symlinks. Anything else is not ours.
     target="$DUSKCURVE_BIN_DIR/$script"
